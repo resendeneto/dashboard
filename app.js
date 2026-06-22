@@ -69,6 +69,22 @@ const METRIC_TIPS = {
   cpc:          'Custo por Clique. Fórmula: Investimento ÷ Cliques. Indica quanto você paga por cada pessoa que clicou no anúncio. Varia muito por nicho e público.',
   conversions:  'Ações de objetivo completadas após o usuário ver ou clicar no anúncio: compras, cadastros, mensagens, etc. Definidas na campanha do Meta Ads.',
   manual_rev:   'Receitas lançadas manualmente: vendas diretas, consultorias, produtos físicos ou qualquer entrada que não passe pelo rastreamento do Meta Ads.',
+  video_views:  'Número total de vezes que vídeos (Reels e Stories) foram reproduzidos na conta no período. A Meta considera uma visualização a partir de 3 segundos de reprodução.',
+  post_views:   'Visualizações registradas em um post ou Reel específico. Para Reels, é o dado mais importante de alcance — uma pessoa pode ver o vídeo várias vezes.',
+};
+
+/* ── Mapa de KPIs disponíveis para conectar às metas ── */
+const KPI_MAP = {
+  followers:   { label: 'Seguidores',            fmt: (v) => fmt(v) },
+  reach:       { label: 'Alcance (período)',      fmt: (v) => fmt(v) },
+  video_views: { label: 'Visualizações de vídeo', fmt: (v) => fmt(v) },
+  post_views:  { label: 'Views em posts',         fmt: (v) => fmt(v) },
+  engagement:  { label: 'Engajamento médio',      fmt: (v) => v.toFixed(1) + '%' },
+  posts:       { label: 'Posts publicados',       fmt: (v) => fmt(v) },
+  spend:       { label: 'Investimento Ads',       fmt: (v) => money(v) },
+  revenue:     { label: 'Receita total',          fmt: (v) => money(v) },
+  conversions: { label: 'Conversões',             fmt: (v) => fmt(v) },
+  roas:        { label: 'ROAS',                   fmt: (v) => v.toFixed(2) + 'x' },
 };
 
 /* ── Estado ── */
@@ -195,7 +211,7 @@ async function syncInstagram(cfg) {
 
   // Daily insights
   const insights = await metaGet(`/${cfg.igAccountId}/insights`, {
-    metric: 'reach,impressions,profile_views,website_clicks',
+    metric: 'reach,impressions,profile_views,website_clicks,video_views',
     period: 'day', since, until,
   });
 
@@ -204,7 +220,7 @@ async function syncInstagram(cfg) {
     (metric.values || []).forEach((v) => {
       const d = v.end_time.slice(0, 10);
       if (!byDate[d]) byDate[d] = { date: d };
-      const map = { reach: 'reach', impressions: 'impressions', profile_views: 'profile_views', website_clicks: 'website_clicks' };
+      const map = { reach: 'reach', impressions: 'impressions', profile_views: 'profile_views', website_clicks: 'website_clicks', video_views: 'video_views' };
       if (map[metric.name]) byDate[d][map[metric.name]] = v.value;
     });
   });
@@ -372,13 +388,12 @@ function render() {
           </div>
         </button>
         <div class="flex-1"></div>
-        ${hasMeta ? `
-        <button onclick="syncMeta()" id="sync-meta-btn" title="Última sincronização${lastSync ? ': '+lastSync : ' nunca'}"
-          class="hidden sm:flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all"
+        <button onclick="syncAll()" id="sync-all-btn" title="${hasMeta ? `Sincronizar Meta API — última sync${lastSync ? ': ' + lastSync : ': nunca'}` : 'Atualizar dados'}"
+          class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all hover:opacity-80"
           style="border-color:${c.accent};color:${c.accent}">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          Sincronizar
-        </button>` : ''}
+          <svg id="sync-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <span id="sync-label">${hasMeta ? 'Sincronizar' : 'Atualizar'}</span>
+        </button>
         <div class="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full ${mode==='supabase'?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}">
           <span class="w-1.5 h-1.5 rounded-full dot-live ${mode==='supabase'?'bg-emerald-500':'bg-amber-500'}"></span>
           ${mode==='supabase'?'Nuvem':'Local'}
@@ -581,27 +596,45 @@ function drawOverviewCharts() {
    VIEW: INSTAGRAM
 ══════════════════════════════════════════════ */
 function viewInstagram() {
-  const ps = State.posts.filter((r) => withinRange(r.date)).map((p) => ({ ...p, eng:Insights.postEngagement(p) })).sort((a, b) => a.date < b.date ? 1 : -1);
+  const ig  = State.igDaily.filter((r) => withinRange(r.date));
+  const ps  = State.posts.filter((r) => withinRange(r.date)).map((p) => ({ ...p, eng:Insights.postEngagement(p) })).sort((a, b) => a.date < b.date ? 1 : -1);
+  const totalVideoViews = ig.reduce((s, r) => s + (+r.video_views || 0), 0);
+  const totalPostViews  = ps.reduce((s, p) => s + (+p.views || 0), 0);
+  const topByViews = [...ps].sort((a, b) => (+b.views||0) - (+a.views||0)).slice(0, 1)[0];
   setTimeout(drawIgCharts, 0);
+
   return `
-  <div class="grid lg:grid-cols-2 gap-4 mb-4">
-    <div class="card p-5">${sectionTitle('Alcance diário')}<div style="height:210px"><canvas id="ch-reach"></canvas></div></div>
-    <div class="card p-5">${sectionTitle('Engajamento por post')}<div style="height:210px"><canvas id="ch-posteng"></canvas></div></div>
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+    ${kpiCard({ label:'Visualizações de vídeo', value:fmt(totalVideoViews), sub:'soma do período na conta', color:totalVideoViews>0?'text-violet-600':'', delay:'anim-fade-up anim-d1', tip:METRIC_TIPS.video_views })}
+    ${kpiCard({ label:'Views em posts', value:fmt(totalPostViews), sub:topByViews?'melhor: '+esc((topByViews.caption||topByViews.type||'').slice(0,20)):'sem posts no período', delay:'anim-fade-up anim-d2', tip:METRIC_TIPS.post_views })}
+    ${kpiCard({ label:'Alcance total', value:fmt(ig.reduce((s,r)=>s+(+r.reach||0),0)), sub:'contas únicas alcançadas', delay:'anim-fade-up anim-d3', tip:METRIC_TIPS.reach })}
+    ${kpiCard({ label:'Engajamento médio', value:ps.length?(ps.reduce((s,p)=>s+p.eng,0)/ps.length).toFixed(1)+'%':'—', sub:`${ps.length} posts no período`, color:ps.length&&(ps.reduce((s,p)=>s+p.eng,0)/ps.length)>=3?'text-emerald-600':'', delay:'anim-fade-up anim-d4', tip:METRIC_TIPS.engagement })}
+  </div>
+  <div class="grid lg:grid-cols-3 gap-4 mb-4">
+    <div class="card p-5 lg:col-span-2">${sectionTitle('Alcance diário')}<div style="height:200px"><canvas id="ch-reach"></canvas></div></div>
+    <div class="card p-5">${sectionTitle('Views por post')}<div style="height:200px"><canvas id="ch-views"></canvas></div></div>
   </div>
   <div class="card p-5">
     ${sectionTitle('Posts & Reels', addBtn('+ Novo post', "openForm('post')"))}
     ${ps.length ? `<div class="overflow-x-auto scrollbar-thin -mx-1"><table class="w-full text-xs">
       <thead><tr class="text-gray-400 border-b border-gray-100">
-        <th class="py-2.5 px-2 text-left font-medium">Data</th><th class="py-2.5 px-2 text-left font-medium">Tipo</th>
-        <th class="py-2.5 px-2 text-left font-medium">Conteúdo</th><th class="py-2.5 px-2 text-right font-medium">Alcance</th>
-        <th class="py-2.5 px-2 text-right font-medium">Likes</th><th class="py-2.5 px-2 text-right font-medium">Coment.</th>
-        <th class="py-2.5 px-2 text-right font-medium">Salvos</th><th class="py-2.5 px-2 text-right font-medium">Eng%</th><th class="w-8"></th>
+        <th class="py-2.5 px-2 text-left font-medium">Data</th>
+        <th class="py-2.5 px-2 text-left font-medium">Tipo</th>
+        <th class="py-2.5 px-2 text-left font-medium">Conteúdo</th>
+        <th class="py-2.5 px-2 text-right font-medium">Views</th>
+        <th class="py-2.5 px-2 text-right font-medium">Alcance</th>
+        <th class="py-2.5 px-2 text-right font-medium">Likes</th>
+        <th class="py-2.5 px-2 text-right font-medium">Coment.</th>
+        <th class="py-2.5 px-2 text-right font-medium">Salvos</th>
+        <th class="py-2.5 px-2 text-right font-medium">Eng%</th>
+        <th class="w-8"></th>
       </tr></thead>
       <tbody class="divide-y divide-gray-50">
         ${ps.map((p) => `<tr class="hover:bg-gray-50/80 transition-colors">
-          <td class="py-2.5 px-2 text-gray-500">${esc(p.date||'')}</td>
+          <td class="py-2.5 px-2 text-gray-500 whitespace-nowrap">${esc(p.date||'')}</td>
           <td class="py-2.5 px-2">${typeBadge(p.type)}</td>
-          <td class="py-2.5 px-2 max-w-[180px] truncate font-medium text-gray-700">${esc(p.caption||'—')}</td>
+          <td class="py-2.5 px-2 max-w-[160px] truncate font-medium text-gray-700">${esc(p.caption||'—')}</td>
+          <td class="py-2.5 px-2 text-right font-bold ${+p.views>0?'text-violet-600':'text-gray-400'}">${p.views?fmt(p.views):'—'}</td>
           <td class="py-2.5 px-2 text-right">${fmt(p.reach)}</td>
           <td class="py-2.5 px-2 text-right">${fmt(p.likes)}</td>
           <td class="py-2.5 px-2 text-right">${fmt(p.comments)}</td>
@@ -614,13 +647,40 @@ function viewInstagram() {
   </div>`;
 }
 function drawIgCharts() {
-  const c = co();
+  const c  = co();
   const ig = State.igDaily.filter((r) => withinRange(r.date)).sort((a, b) => a.date < b.date ? -1 : 1);
   const ps = State.posts.filter((r) => withinRange(r.date)).sort((a, b) => a.date < b.date ? -1 : 1);
+
   const rEl = $('#ch-reach');
-  if (rEl) { const ctx=rEl.getContext('2d'); State.charts.reach=new Chart(rEl,{type:'line',data:{labels:ig.map((r)=>r.date.slice(5)),datasets:[{label:'Alcance',data:ig.map((r)=>+r.reach||0),borderColor:c.accent,backgroundColor:gradientFill(ctx,c.accent),fill:true,tension:.4,pointRadius:0,pointHoverRadius:5,borderWidth:2.5}]},options:baseChartOpts()}); }
-  const pEl = $('#ch-posteng');
-  if (pEl) State.charts.posteng=new Chart(pEl,{type:'bar',data:{labels:ps.map((p)=>(p.caption||p.type||'').slice(0,10)),datasets:[{label:'Eng %',data:ps.map((p)=>+Insights.postEngagement(p).toFixed(1)),backgroundColor:c.accent+'CC',borderRadius:6,borderSkipped:false}]},options:baseChartOpts()});
+  if (rEl) {
+    const ctx = rEl.getContext('2d');
+    State.charts.reach = new Chart(rEl, {
+      type: 'line',
+      data: {
+        labels: ig.map((r) => r.date.slice(5)),
+        datasets: [
+          { label:'Alcance', data:ig.map((r)=>+r.reach||0), borderColor:c.accent, backgroundColor:gradientFill(ctx,c.accent), fill:true, tension:.4, pointRadius:0, pointHoverRadius:5, borderWidth:2.5 },
+          { label:'Visualizações', data:ig.map((r)=>+r.video_views||0), borderColor:'#7C3AED', backgroundColor:'transparent', tension:.4, pointRadius:0, pointHoverRadius:5, borderWidth:2, borderDash:[4,3] },
+        ],
+      },
+      options: baseChartOpts(),
+    });
+  }
+
+  const vEl = $('#ch-views');
+  if (vEl) {
+    const hasViews = ps.some((p) => +p.views > 0);
+    State.charts.views = new Chart(vEl, {
+      type: 'bar',
+      data: {
+        labels: ps.map((p) => (p.caption || p.type || '').slice(0, 10)),
+        datasets: hasViews
+          ? [{ label:'Views', data:ps.map((p)=>+p.views||0), backgroundColor:'#7C3AED99', borderRadius:6, borderSkipped:false }]
+          : [{ label:'Eng %', data:ps.map((p)=>+Insights.postEngagement(p).toFixed(1)), backgroundColor:c.accent+'CC', borderRadius:6, borderSkipped:false }],
+      },
+      options: baseChartOpts(),
+    });
+  }
 }
 
 /* ══════════════════════════════════════════════
@@ -794,11 +854,63 @@ function viewRevenue() {
 }
 
 /* ══════════════════════════════════════════════
+   KPI HELPERS — usados pelas metas conectadas
+══════════════════════════════════════════════ */
+function getKpiValue(kpiKey) {
+  const ig = State.igDaily.filter((r) => withinRange(r.date));
+  const ps = State.posts.filter((r) => withinRange(r.date));
+  const ad = State.ads.filter((r) => withinRange(r.date));
+  const rv = State.revenues.filter((r) => withinRange(r.date));
+  switch (kpiKey) {
+    case 'followers':   return ig.length ? Math.max(...ig.map((r) => +r.followers || 0)) : 0;
+    case 'reach':       return ig.reduce((s, r) => s + (+r.reach || 0), 0);
+    case 'video_views': return ig.reduce((s, r) => s + (+r.video_views || 0), 0);
+    case 'post_views':  return ps.reduce((s, p) => s + (+p.views || 0), 0);
+    case 'engagement':  return ps.length ? ps.reduce((s, p) => s + Insights.postEngagement(p), 0) / ps.length : 0;
+    case 'posts':       return ps.length;
+    case 'spend':       return ad.reduce((s, a) => s + (+a.spend || 0), 0);
+    case 'revenue':     return ad.reduce((s, a) => s + (+a.revenue || 0), 0) + rv.reduce((s, r) => s + (+r.amount || 0), 0);
+    case 'conversions': return ad.reduce((s, a) => s + (+a.conversions || 0), 0);
+    case 'roas': {
+      const sp = ad.reduce((s, a) => s + (+a.spend || 0), 0);
+      const r2 = ad.reduce((s, a) => s + (+a.revenue || 0), 0) + rv.reduce((s, r) => s + (+r.amount || 0), 0);
+      return sp > 0 ? r2 / sp : 0;
+    }
+    default: return 0;
+  }
+}
+function goalSuggestion(kpiKey, cur, target) {
+  const rem = target - cur;
+  const suggestions = {
+    followers:   `Faltam ${fmt(rem)} seguidores. Publique Reels diários e responda todos os comentários para aumentar o alcance orgânico.`,
+    reach:       `Faltam ${fmt(rem)} de alcance. Aumente frequência de posts e use hashtags estratégicas nos Reels.`,
+    video_views: `Faltam ${fmt(rem)} visualizações. Crie hooks nos primeiros 3 segundos — isso reduz a taxa de saída e aumenta a distribuição.`,
+    post_views:  `Faltam ${fmt(rem)} views nos posts. Reels têm até 3× mais views que fotos; experimente esse formato.`,
+    engagement:  `Taxa ${(target - cur).toFixed(1)}pp abaixo. Faça perguntas nos posts, use enquetes nos Stories e responda comentários.`,
+    posts:       `Faltam ${fmt(rem)} posts. Monte um calendário editorial para manter consistência.`,
+    spend:       `Orçamento com ${money(rem)} disponível. Considere escalar campanhas com ROAS acima de 2×.`,
+    revenue:     `Faltam ${money(rem)} para a meta. Teste novos criativos de conversão e otimize o público.`,
+    conversions: `Faltam ${fmt(rem)} conversões. Revise públicos-alvo e tempo de carregamento da landing page.`,
+    roas:        `ROAS ${(target - cur).toFixed(2)}x abaixo da meta. Pause criativos com CTR baixo e redistribua o orçamento.`,
+  };
+  return suggestions[kpiKey] || `${Math.round((1 - cur / target) * 100)}% restante para a meta.`;
+}
+
+/* ══════════════════════════════════════════════
    VIEW: METAS
 ══════════════════════════════════════════════ */
 function viewGoals() {
-  return `<div class="card p-5">
+  const hasKpi = State.goals.some((g) => g.kpiKey);
+  const achieved = State.goals.filter((g) => { const t=+g.target||0; const c=g.kpiKey?getKpiValue(g.kpiKey):(+g.current||0); return t>0&&c>=t; });
+  return `
+  ${achieved.length ? `<div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-5 py-4 mb-4 flex items-center gap-3">
+    <span class="text-2xl">🎉</span>
+    <div><p class="font-bold text-sm text-emerald-800">${achieved.length === 1 ? `Meta "${esc(achieved[0].name)}" alcançada!` : `${achieved.length} metas alcançadas!`}</p>
+    <p class="text-xs text-emerald-600 mt-0.5">Continue assim — o crescimento é resultado de consistência.</p></div>
+  </div>` : ''}
+  <div class="card p-5">
     ${sectionTitle('Metas', addBtn('+ Nova meta', "openForm('goal')"))}
+    ${hasKpi ? `<p class="text-xs text-gray-400 mb-4">Metas com <span class="text-violet-500 font-semibold">● ao vivo</span> são atualizadas automaticamente com os dados do período selecionado.</p>` : ''}
     ${State.goals.length
       ? `<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">${State.goals.map(goalCard).join('')}</div>`
       : emptyState('Defina metas para acompanhar o progresso.', `<button onclick="openForm('goal')" class="btn-accent mt-3">Criar primeira meta</button>`)}
@@ -806,26 +918,42 @@ function viewGoals() {
 }
 function goalCard(g) {
   const c = co();
-  const cur = +g.current||0, target = +g.target||0;
-  const ratio = target>0 ? clamp(cur/target, 0, 1) : 0;
+  const hasKpi = !!g.kpiKey;
+  const kpiDef = hasKpi ? KPI_MAP[g.kpiKey] : null;
+  const cur = hasKpi ? getKpiValue(g.kpiKey) : (+g.current || 0);
+  const target = +g.target || 0;
+  const ratio = target > 0 ? clamp(cur / target, 0, 1) : 0;
   const pct = Math.round(ratio * 100);
-  const barColor = ratio>=1 ? '#10B981' : ratio>=.5 ? c.accent : '#F59E0B';
-  return `<div class="border border-gray-100 rounded-2xl p-4 hover:shadow-md transition-shadow">
-    <div class="flex items-start justify-between mb-3">
-      <div><p class="font-bold text-sm text-gray-900">${esc(g.name)}</p><p class="text-xs text-gray-400 mt-0.5">${esc(g.period||'meta')}</p></div>
-      <button onclick="delRow('goals','${g.id}')" class="text-gray-200 hover:text-red-500 text-sm">✕</button>
+  const achieved = target > 0 && cur >= target;
+  const barColor = achieved ? '#10B981' : ratio >= .7 ? c.accent : ratio >= .4 ? '#F59E0B' : '#EF4444';
+  const dispVal = kpiDef ? kpiDef.fmt(cur) : fmt(cur);
+  const dispTgt = kpiDef ? kpiDef.fmt(target) : fmt(target);
+  return `<div class="border ${achieved ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-100'} rounded-2xl p-4 hover:shadow-md transition-all">
+    <div class="flex items-start justify-between mb-2">
+      <div class="min-w-0 flex-1 pr-2">
+        <p class="font-bold text-sm text-gray-900 truncate">${esc(g.name)}</p>
+        <p class="text-[11px] text-gray-400 mt-0.5">${esc(g.period || 'meta')}${kpiDef ? ` · <span class="text-violet-500 font-semibold">${kpiDef.label}</span>` : ''}</p>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        ${hasKpi ? `<span class="text-[10px] text-violet-500 font-bold">● ao vivo</span>` : ''}
+        <button onclick="delRow('goals','${g.id}')" class="text-gray-200 hover:text-red-500 text-sm">✕</button>
+      </div>
     </div>
-    <div class="flex items-baseline justify-between mb-2">
-      <span class="text-3xl font-black" style="color:${barColor}">${fmt(cur)}</span>
-      <span class="text-xs text-gray-400 font-medium">de ${fmt(target)}</span>
+    ${achieved ? `<div class="bg-emerald-100 text-emerald-700 rounded-xl px-3 py-1.5 text-xs font-bold text-center mb-3">🎉 Meta alcançada!</div>` : ''}
+    <div class="flex items-baseline justify-between mb-1.5">
+      <span class="text-2xl font-black" style="color:${barColor}">${dispVal}</span>
+      <span class="text-xs text-gray-400 font-medium">de ${dispTgt}</span>
     </div>
     <div class="h-2 bg-gray-100 rounded-full overflow-hidden mb-2">
-      <div class="h-full rounded-full prog-bar" style="width:${pct}%;background:linear-gradient(90deg,${barColor},${barColor}CC)"></div>
+      <div class="h-full rounded-full prog-bar" style="width:${pct}%;background:linear-gradient(90deg,${barColor},${barColor}AA)"></div>
     </div>
-    <div class="flex items-center justify-between">
-      <span class="text-xs font-bold" style="color:${barColor}">${pct}%</span>
-      <button onclick="openForm('goal','${g.id}')" class="text-xs font-semibold" style="color:var(--accent)">Atualizar →</button>
+    <div class="flex items-center justify-between ${!achieved && hasKpi ? 'mb-3' : ''}">
+      <span class="text-xs font-bold" style="color:${barColor}">${pct}% concluído</span>
+      ${!hasKpi ? `<button onclick="openForm('goal','${g.id}')" class="text-xs font-semibold" style="color:var(--accent)">Atualizar →</button>` : ''}
     </div>
+    ${!achieved && hasKpi && target > 0 ? `<div class="border-t border-gray-100 pt-2.5">
+      <p class="text-[11px] text-gray-500 leading-relaxed">💡 ${goalSuggestion(g.kpiKey, cur, target)}</p>
+    </div>` : ''}
   </div>`;
 }
 
@@ -905,16 +1033,22 @@ function viewData() {
     ${sectionTitle('Histórico · Métricas diárias Instagram')}
     ${ig.length ? `<div class="overflow-x-auto scrollbar-thin -mx-1"><table class="w-full text-xs">
       <thead><tr class="text-gray-400 border-b border-gray-100">
-        <th class="py-2.5 px-2 text-left font-medium">Data</th><th class="py-2.5 px-2 text-right font-medium">Seguidores</th>
-        <th class="py-2.5 px-2 text-right font-medium">Alcance</th><th class="py-2.5 px-2 text-right font-medium">Impressões</th>
-        <th class="py-2.5 px-2 text-right font-medium">Visitas perfil</th><th class="py-2.5 px-2 text-right font-medium">Cliques site</th><th class="w-8"></th>
+        <th class="py-2.5 px-2 text-left font-medium">Data</th>
+        <th class="py-2.5 px-2 text-right font-medium">Seguidores</th>
+        <th class="py-2.5 px-2 text-right font-medium">Alcance</th>
+        <th class="py-2.5 px-2 text-right font-medium">Impressões</th>
+        <th class="py-2.5 px-2 text-right font-medium">Visualizações</th>
+        <th class="py-2.5 px-2 text-right font-medium">Visitas perfil</th>
+        <th class="py-2.5 px-2 text-right font-medium">Cliques site</th>
+        <th class="w-8"></th>
       </tr></thead>
       <tbody class="divide-y divide-gray-50">
         ${ig.map((r) => `<tr class="hover:bg-gray-50/80 transition-colors">
-          <td class="py-2.5 px-2 text-gray-500">${esc(r.date)}</td>
+          <td class="py-2.5 px-2 text-gray-500 whitespace-nowrap">${esc(r.date)}</td>
           <td class="py-2.5 px-2 text-right font-bold text-gray-900">${fmt(r.followers)}</td>
           <td class="py-2.5 px-2 text-right text-gray-600">${fmt(r.reach)}</td>
           <td class="py-2.5 px-2 text-right text-gray-600">${fmt(r.impressions)}</td>
+          <td class="py-2.5 px-2 text-right font-semibold text-violet-600">${r.video_views?fmt(r.video_views):'—'}</td>
           <td class="py-2.5 px-2 text-right text-gray-600">${fmt(r.profile_views)}</td>
           <td class="py-2.5 px-2 text-right text-gray-600">${fmt(r.website_clicks)}</td>
           <td class="py-2.5 px-2 text-right"><button onclick="delRow('ig_daily','${r.id}')" class="text-gray-300 hover:text-red-500">✕</button></td>
@@ -1021,6 +1155,8 @@ function viewComparative() {
     const followers    = ig.length ? Math.max(...ig.map((r) => +r.followers || 0)) : 0;
     const reach        = ig.reduce((s, r) => s + (+r.reach || 0), 0);
     const profileViews = ig.reduce((s, r) => s + (+r.profile_views || 0), 0);
+    const videoViews   = ig.reduce((s, r) => s + (+r.video_views || 0), 0);
+    const postViews    = ps.reduce((s, p) => s + (+p.views || 0), 0);
     const engRate      = ps.length ? ps.reduce((s, p) => s + Insights.postEngagement(p), 0) / ps.length : 0;
     const spend        = ad.reduce((s, a) => s + (+a.spend || 0), 0);
     const adsRevenue   = ad.reduce((s, a) => s + (+a.revenue || 0), 0);
@@ -1032,7 +1168,7 @@ function viewComparative() {
     const roas         = spend > 0 ? adsRevenue / spend : 0;
     const cpa          = conv > 0 ? spend / conv : 0;
     const ctr          = impr > 0 ? (clicks / impr) * 100 : 0;
-    return { followers, reach, profileViews, engRate, postCount:ps.length, spend, adsRevenue, conv, clicks, impr, manualRev, totalRev, roas, cpa, ctr, profit:totalRev - spend };
+    return { followers, reach, profileViews, videoViews, postViews, engRate, postCount:ps.length, spend, adsRevenue, conv, clicks, impr, manualRev, totalRev, roas, cpa, ctr, profit:totalRev - spend };
   }
 
   const A = periodKPIs(aFrom, aTo), B = periodKPIs(bFrom, bTo);
@@ -1055,6 +1191,8 @@ function viewComparative() {
   const rows = [
     { l:'Seguidores',        t:'followers',    va:A.followers,    vb:B.followers,    f:fmt,                        inv:false },
     { l:'Alcance',           t:'reach',        va:A.reach,        vb:B.reach,        f:fmt,                        inv:false },
+    { l:'Visualizações vídeo',t:'video_views', va:A.videoViews,   vb:B.videoViews,   f:fmt,                        inv:false },
+    { l:'Views em posts',    t:'post_views',   va:A.postViews,    vb:B.postViews,    f:fmt,                        inv:false },
     { l:'Visitas ao perfil', t:'profile_views',va:A.profileViews, vb:B.profileViews, f:fmt,                        inv:false },
     { l:'Engajamento médio', t:'engagement',   va:A.engRate,      vb:B.engRate,      f:(v)=>v.toFixed(1)+'%',      inv:false },
     { l:'Posts publicados',  t:'',             va:A.postCount,    vb:B.postCount,    f:fmt,                        inv:false },
@@ -1195,11 +1333,13 @@ const FORMS = {
     { k:'impressions', label:'Impressões', type:'number' },
     { k:'profile_views', label:'Visitas ao perfil', type:'number' },
     { k:'website_clicks', label:'Cliques no site', type:'number' },
+    { k:'video_views', label:'Visualizações de vídeo (total)', type:'number' },
   ]},
   post:    { title:'Post / Reel', col:'ig_posts', fields:[
     { k:'date', label:'Data', type:'date', def:today, required:true },
     { k:'type', label:'Tipo', type:'select', options:['Reel','Carrossel','Foto','Story'] },
     { k:'caption', label:'Tema / legenda', type:'text' },
+    { k:'views', label:'Visualizações', type:'number' },
     { k:'reach', label:'Alcance', type:'number' },
     { k:'likes', label:'Curtidas', type:'number' },
     { k:'comments', label:'Comentários', type:'number' },
@@ -1223,10 +1363,23 @@ const FORMS = {
     { k:'description', label:'Descrição (opcional)', type:'textarea' },
   ]},
   goal:    { title:'Meta', col:'goals', fields:[
-    { k:'name', label:'Nome da meta', type:'text', required:true, placeholder:'Ex.: Seguidores em junho' },
+    { k:'name', label:'Nome da meta', type:'text', required:true, placeholder:'Ex.: 10.000 seguidores em junho' },
     { k:'period', label:'Período', type:'text', placeholder:'Ex.: Junho/2026' },
+    { k:'kpiKey', label:'Conectar a KPI (atualização automática)', type:'select', options:[
+      { value:'', label:'Manual — vou atualizar o progresso' },
+      { value:'followers',   label:'Seguidores' },
+      { value:'reach',       label:'Alcance (período)' },
+      { value:'video_views', label:'Visualizações de vídeo' },
+      { value:'post_views',  label:'Views em posts' },
+      { value:'engagement',  label:'Engajamento médio (%)' },
+      { value:'posts',       label:'Posts publicados' },
+      { value:'spend',       label:'Investimento Ads (R$)' },
+      { value:'revenue',     label:'Receita total (R$)' },
+      { value:'conversions', label:'Conversões' },
+      { value:'roas',        label:'ROAS' },
+    ]},
     { k:'target', label:'Objetivo (número)', type:'number', required:true },
-    { k:'current', label:'Progresso atual', type:'number' },
+    { k:'current', label:'Progresso atual (só se manual)', type:'number' },
   ]},
   note:    { title:'Anotação', col:'notes', fields:[
     { k:'icon', label:'Ícone', type:'select', options:['📝','💡','📌','🔑','🎯','⭐','📣','🔥'] },
@@ -1267,7 +1420,14 @@ function fieldHtml(f, existing) {
   const val = existing ? (existing[f.k]??'') : (typeof f.def==='function' ? f.def() : (f.def??''));
   const base = 'w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 transition-all';
   let input;
-  if (f.type==='select') input = `<select name="${f.k}" class="${base} cursor-pointer">${f.options.map((o)=>`<option ${String(val)===o?'selected':''}>${o}</option>`).join('')}</select>`;
+  if (f.type==='select') {
+    const opts = (f.options||[]).map((o) => {
+      const v = typeof o === 'object' ? o.value : o;
+      const l = typeof o === 'object' ? o.label  : o;
+      return `<option value="${esc(v)}" ${String(val)===v?'selected':''}>${esc(l)}</option>`;
+    });
+    input = `<select name="${f.k}" class="${base} cursor-pointer">${opts.join('')}</select>`;
+  }
   else if (f.type==='textarea') input = `<textarea name="${f.k}" rows="3" class="${base}" placeholder="${f.placeholder||''}">${esc(val)}</textarea>`;
   else input = `<input name="${f.k}" type="${f.type}" ${f.step?`step="${f.step}"`:''}  ${f.required?'required':''} class="${base}" placeholder="${f.placeholder||''}" value="${esc(val)}" />`;
   return `<div><label class="block text-xs font-semibold text-gray-600 mb-1.5">${f.label}${f.required?' <span class="text-red-400">*</span>':''}</label>${input}</div>`;
@@ -1329,11 +1489,11 @@ async function loadSample() {
   const c=co(), base=12000;
   for (let i=29;i>=0;i--) {
     const d=new Date(); d.setDate(d.getDate()-i);
-    await DB.insert('ig_daily',{ date:d.toISOString().slice(0,10), followers:base+(29-i)*35+Math.round(Math.random()*20), reach:3000+Math.round(Math.random()*4000), impressions:5000+Math.round(Math.random()*6000), profile_views:200+Math.round(Math.random()*300), website_clicks:20+Math.round(Math.random()*60) });
+    await DB.insert('ig_daily',{ date:d.toISOString().slice(0,10), followers:base+(29-i)*35+Math.round(Math.random()*20), reach:3000+Math.round(Math.random()*4000), impressions:5000+Math.round(Math.random()*6000), profile_views:200+Math.round(Math.random()*300), website_clicks:20+Math.round(Math.random()*60), video_views:8000+Math.round(Math.random()*12000) });
   }
   for (let i=0;i<c.sample.posts.length;i++) {
     const d=new Date(); d.setDate(d.getDate()-i*4);
-    await DB.insert('ig_posts',{ date:d.toISOString().slice(0,10), type:c.sample.posts[i][0], caption:c.sample.posts[i][1], reach:4000+Math.round(Math.random()*8000), likes:300+Math.round(Math.random()*900), comments:20+Math.round(Math.random()*120), saves:50+Math.round(Math.random()*400), shares:30+Math.round(Math.random()*200) });
+    await DB.insert('ig_posts',{ date:d.toISOString().slice(0,10), type:c.sample.posts[i][0], caption:c.sample.posts[i][1], views:5000+Math.round(Math.random()*25000), reach:4000+Math.round(Math.random()*8000), likes:300+Math.round(Math.random()*900), comments:20+Math.round(Math.random()*120), saves:50+Math.round(Math.random()*400), shares:30+Math.round(Math.random()*200) });
   }
   for (let i=13;i>=0;i-=2) {
     const d=new Date(); d.setDate(d.getDate()-i);
@@ -1387,3 +1547,41 @@ window.saveConfig=saveConfig; window.clearConfig=clearConfig; window.saveMetaCon
 window.exportData=exportData; window.importData=importData; window.wipeData=wipeData;
 window.loadSample=loadSample; window.selectCompany=selectCompany; window.showSelector=showSelector;
 window.syncMeta=syncMeta; window.applyCustomRange=applyCustomRange; window.clearCustomRange=clearCustomRange;
+
+async function syncAll() {
+  const btn = $('#sync-all-btn'), label = $('#sync-label'), icon = $('#sync-icon');
+  if (btn) { btn.disabled = true; if (label) label.textContent = 'Atualizando…'; if (icon) icon.style.animation = 'spin 1s linear infinite'; }
+  try {
+    const cfg = DB.getCompanyConfig();
+    if (cfg.metaToken && cfg.igAccountId) {
+      await syncMeta();
+    } else {
+      await loadAll();
+      render();
+      toast('Dados atualizados!');
+    }
+  } finally {
+    if (btn) { btn.disabled = false; if (icon) icon.style.animation = ''; }
+  }
+}
+window.syncAll = syncAll;
+
+function initTooltips() {
+  if (window._tipInit) return;
+  window._tipInit = true;
+  document.addEventListener('mouseenter', (e) => {
+    if (!e.target?.classList?.contains('tip-icon')) return;
+    const pop = e.target.nextElementSibling;
+    if (!pop?.classList?.contains('tip-pop')) return;
+    pop.style.left = ''; pop.style.right = ''; pop.style.transform = '';
+    const iconRect = e.target.getBoundingClientRect();
+    const popW = 220;
+    const centered = iconRect.left + iconRect.width / 2 - popW / 2;
+    if (centered < 8) {
+      pop.style.left = '0'; pop.style.transform = 'none';
+    } else if (centered + popW > window.innerWidth - 8) {
+      pop.style.left = 'auto'; pop.style.right = '0'; pop.style.transform = 'none';
+    }
+  }, true);
+}
+initTooltips();
