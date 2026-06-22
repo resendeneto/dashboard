@@ -5,3 +5,8 @@ meta-mcp/*.pyc
 .DS_Store
 Thumbs.db
 meta-backup-*.json
+
+github-mcp/.env
+github-mcp/__pycache__/
+github-mcp/*.pyc
+.vercel/*.local

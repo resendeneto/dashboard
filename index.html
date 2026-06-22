@@ -136,6 +136,30 @@
     /* ── Tag badge ── */
     .tag { font-size: .6875rem; font-weight: 600; padding: .2rem .55rem; border-radius: 6px; }
 
+    /* ── Metric tooltip ── */
+    .tip-wrap { position: relative; display: inline-flex; align-items: center; }
+    .tip-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #E5E7EB; color: #9CA3AF; font-size: 9px; font-weight: 700;
+      cursor: default; margin-left: 4px; font-style: normal; line-height: 1;
+      transition: background .15s; flex-shrink: 0; border: none; padding: 0;
+    }
+    .tip-icon:hover, .tip-icon:focus { background: var(--accent-light); color: var(--accent); outline: none; }
+    .tip-pop {
+      position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+      background: #111827; color: #f9fafb; font-size: 11px; line-height: 1.6;
+      padding: 10px 13px; border-radius: 13px; width: 220px; z-index: 200;
+      pointer-events: none; opacity: 0; transition: opacity .15s .05s;
+      white-space: normal; text-align: left; font-weight: 400;
+      box-shadow: 0 8px 32px rgba(0,0,0,.35);
+    }
+    .tip-pop::after {
+      content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+      border: 5px solid transparent; border-top-color: #111827;
+    }
+    .tip-wrap:hover .tip-pop, .tip-icon:focus + .tip-pop { opacity: 1; }
+
     /* ── Modal ── */
     #modal-root .modal-sheet {
       animation: fadeUp .25s cubic-bezier(.22,1,.36,1) both;

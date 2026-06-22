@@ -149,5 +149,8 @@
     clearAll() {
       Object.keys(COLLECTIONS).forEach((c) => Local.write(c, []));
     },
+    clearCollection(col) {
+      Local.write(col, []);
+    },
   };
 })();

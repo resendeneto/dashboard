@@ -51,6 +51,26 @@ const COMPANIES = [
   },
 ];
 
+/* ── Dicionário de tooltips para cada métrica ── */
+const METRIC_TIPS = {
+  followers:    'Total acumulado de seguidores da conta. A Meta Insights API fornece este dado diariamente. Quanto mais cresce, maior o alcance orgânico potencial.',
+  reach:        'Número de contas únicas que viram pelo menos um conteúdo no período. Diferente de impressões — cada pessoa é contada uma só vez, mesmo vendo vários posts.',
+  profile_views:'Quantidade de vezes que o perfil foi acessado. Alta visita com poucos seguidores novos indica que o perfil não está convertindo bem.',
+  engagement:   'Média de (curtidas + comentários + salvamentos + compartilhamentos) ÷ alcance × 100, calculada nos posts do período. Acima de 3% é considerado excelente.',
+  ads_spend:    'Valor total investido em campanhas de anúncios no Meta Ads Manager no período selecionado.',
+  ads_revenue:  'Receita atribuída pelo Meta Ads às campanhas com base em conversões rastreadas pelo pixel ou API de Conversões. Pode ter defasagem de até 28 dias.',
+  total_revenue:'Soma de todas as fontes: receita atribuída às campanhas pelo Meta Ads + receitas lançadas manualmente (vendas, consultorias, etc.).',
+  roas:         'Return on Ad Spend — Retorno sobre Investimento em Anúncios. Fórmula: Receita Ads ÷ Investimento. ROAS 2x = cada R$ 1 gasto gerou R$ 2 de receita. Abaixo de 1x significa prejuízo.',
+  cpa:          'Custo por Aquisição. Fórmula: Investimento ÷ Conversões. Indica quanto você paga em média para cada conversão. Quanto menor, mais eficiente a campanha.',
+  profit:       'Receita Total menos Investimento em Ads. Estimativa simples — não inclui outros custos operacionais como equipe, ferramentas ou produção de conteúdo.',
+  impressions:  'Número total de vezes que os anúncios foram exibidos, incluindo múltiplas exibições para o mesmo usuário. Sempre maior que o alcance.',
+  clicks:       'Quantidade de cliques nos anúncios. Inclui cliques no link, na imagem, no perfil e outros tipos de interação com o anúncio.',
+  ctr:          'Click-Through Rate (Taxa de Cliques). Fórmula: Cliques ÷ Impressões × 100. Uma CTR acima de 1% é considerada boa para a maioria dos nichos.',
+  cpc:          'Custo por Clique. Fórmula: Investimento ÷ Cliques. Indica quanto você paga por cada pessoa que clicou no anúncio. Varia muito por nicho e público.',
+  conversions:  'Ações de objetivo completadas após o usuário ver ou clicar no anúncio: compras, cadastros, mensagens, etc. Definidas na campanha do Meta Ads.',
+  manual_rev:   'Receitas lançadas manualmente: vendas diretas, consultorias, produtos físicos ou qualquer entrada que não passe pelo rastreamento do Meta Ads.',
+};
+
 /* ── Estado ── */
 const State = {
   tab: 'overview', range: 30, company: null,
@@ -326,6 +346,7 @@ const TABS = [
   { id: 'goals',     label: 'Metas',        icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>' },
   { id: 'ideas',     label: 'Sugestões',    icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' },
   { id: 'data',      label: 'Dados',        icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>' },
+  { id: 'comparative', label: 'Comparativo', icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>' },
   { id: 'settings',  label: 'Config',       icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>' },
 ];
 
@@ -408,7 +429,7 @@ function render() {
 function renderView() {
   Object.values(State.charts).forEach((c) => { try { c.destroy(); } catch {} });
   State.charts = {};
-  const fn = { overview: viewOverview, instagram: viewInstagram, ads: viewAds, revenue: viewRevenue, goals: viewGoals, ideas: viewIdeas, data: viewData, settings: viewSettings }[State.tab];
+  const fn = { overview: viewOverview, instagram: viewInstagram, ads: viewAds, revenue: viewRevenue, goals: viewGoals, ideas: viewIdeas, data: viewData, settings: viewSettings, comparative: viewComparative }[State.tab];
   const view = $('#view');
   view.innerHTML = fn();
   view.style.animation = 'none'; view.offsetHeight;
@@ -419,9 +440,10 @@ function renderView() {
 /* ══════════════════════════════════════════════
    COMPONENTES
 ══════════════════════════════════════════════ */
-function kpiCard({ label, value, sub, color = '', delay = '' }) {
+function kpiCard({ label, value, sub, color = '', delay = '', tip = '' }) {
+  const tipHtml = tip ? `<span class="tip-wrap"><button class="tip-icon" tabindex="-1" onclick="return false">i</button><span class="tip-pop">${tip}</span></span>` : '';
   return `<div class="card p-5 ${delay}">
-    <p class="text-xs font-medium text-gray-400 mb-2">${label}</p>
+    <p class="text-xs font-medium text-gray-400 mb-2 flex items-center">${label}${tipHtml}</p>
     <p class="text-2xl font-black tracking-tight ${color} kpi-num">${value}</p>
     <p class="text-xs text-gray-400 mt-1.5">${sub || '&nbsp;'}</p>
   </div>`;
@@ -480,16 +502,16 @@ function viewOverview() {
 
   return `
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
-    ${kpiCard({ label:'Seguidores', value:fmt(k.followersNow), sub:`${k.followersDelta>=0?'+':''}${fmt(k.followersDelta)} no período`, color:'text-gradient', delay:'anim-fade-up anim-d1' })}
-    ${kpiCard({ label:'Alcance total', value:fmt(k.reach), sub:`${fmt(k.profileViews)} visitas ao perfil`, delay:'anim-fade-up anim-d2' })}
-    ${kpiCard({ label:'Engajamento médio', value:k.engRate.toFixed(1)+'%', sub:`${k.postCount} posts no período`, color:k.engRate>=3?'text-emerald-600':'', delay:'anim-fade-up anim-d3' })}
-    ${kpiCard({ label:'Investimento Ads', value:money(k.adsSpend), sub:`${fmt(k.conv)} conversões`, color:'text-blue-600', delay:'anim-fade-up anim-d4' })}
+    ${kpiCard({ label:'Seguidores', value:fmt(k.followersNow), sub:`${k.followersDelta>=0?'+':''}${fmt(k.followersDelta)} no período`, color:'text-gradient', delay:'anim-fade-up anim-d1', tip:METRIC_TIPS.followers })}
+    ${kpiCard({ label:'Alcance total', value:fmt(k.reach), sub:`${fmt(k.profileViews)} visitas ao perfil`, delay:'anim-fade-up anim-d2', tip:METRIC_TIPS.reach })}
+    ${kpiCard({ label:'Engajamento médio', value:k.engRate.toFixed(1)+'%', sub:`${k.postCount} posts no período`, color:k.engRate>=3?'text-emerald-600':'', delay:'anim-fade-up anim-d3', tip:METRIC_TIPS.engagement })}
+    ${kpiCard({ label:'Investimento Ads', value:money(k.adsSpend), sub:`${fmt(k.conv)} conversões`, color:'text-blue-600', delay:'anim-fade-up anim-d4', tip:METRIC_TIPS.ads_spend })}
   </div>
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-    ${kpiCard({ label:'Receita Total', value:money(k.totalRev), sub:`Ads ${money(k.adsRevenue)} + Manual ${money(k.manualRev)}`, color:'text-emerald-600', delay:'anim-fade-up anim-d1' })}
-    ${kpiCard({ label:'ROAS', value:k.roas?k.roas.toFixed(2)+'x':'—', sub:'retorno sobre investimento', color:k.roas>=2?'text-emerald-600':k.roas>0&&k.roas<1?'text-red-600':'', delay:'anim-fade-up anim-d2' })}
-    ${kpiCard({ label:'CPA', value:k.cpa?money(k.cpa):'—', sub:'custo por conversão', delay:'anim-fade-up anim-d3' })}
-    ${kpiCard({ label:'Lucro estimado', value:money(k.profit), sub:'receita total − investimento', color:k.profit>=0?'text-emerald-600':'text-red-600', delay:'anim-fade-up anim-d4' })}
+    ${kpiCard({ label:'Receita Total', value:money(k.totalRev), sub:`Ads ${money(k.adsRevenue)} + Manual ${money(k.manualRev)}`, color:'text-emerald-600', delay:'anim-fade-up anim-d1', tip:METRIC_TIPS.total_revenue })}
+    ${kpiCard({ label:'ROAS', value:k.roas?k.roas.toFixed(2)+'x':'—', sub:'retorno sobre investimento', color:k.roas>=2?'text-emerald-600':k.roas>0&&k.roas<1?'text-red-600':'', delay:'anim-fade-up anim-d2', tip:METRIC_TIPS.roas })}
+    ${kpiCard({ label:'CPA', value:k.cpa?money(k.cpa):'—', sub:'custo por conversão', delay:'anim-fade-up anim-d3', tip:METRIC_TIPS.cpa })}
+    ${kpiCard({ label:'Lucro estimado', value:money(k.profit), sub:'receita total − investimento', color:k.profit>=0?'text-emerald-600':'text-red-600', delay:'anim-fade-up anim-d4', tip:METRIC_TIPS.profit })}
   </div>
   <div class="grid lg:grid-cols-3 gap-4 mb-5">
     <div class="card p-5 lg:col-span-2 anim-fade-up anim-d1">
@@ -629,16 +651,16 @@ function viewAds() {
 
   return `
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
-    ${kpiCard({ label:'Investimento', value:money(spend), sub:'no período', color:'text-blue-600', delay:'anim-fade-up anim-d1' })}
-    ${kpiCard({ label:'Receita Ads', value:money(revenue), sub:'atribuída diretamente', color:'text-emerald-600', delay:'anim-fade-up anim-d2' })}
-    ${kpiCard({ label:'ROAS', value:roas?roas.toFixed(2)+'x':'—', sub:'retorno', color:roas>=2?'text-emerald-600':roas>0&&roas<1?'text-red-600':'', delay:'anim-fade-up anim-d3' })}
-    ${kpiCard({ label:'Conversões', value:fmt(conv), sub:cpa?'CPA '+money(cpa):'', delay:'anim-fade-up anim-d4' })}
+    ${kpiCard({ label:'Investimento', value:money(spend), sub:'no período', color:'text-blue-600', delay:'anim-fade-up anim-d1', tip:METRIC_TIPS.ads_spend })}
+    ${kpiCard({ label:'Receita Ads', value:money(revenue), sub:'atribuída diretamente', color:'text-emerald-600', delay:'anim-fade-up anim-d2', tip:METRIC_TIPS.ads_revenue })}
+    ${kpiCard({ label:'ROAS', value:roas?roas.toFixed(2)+'x':'—', sub:'retorno', color:roas>=2?'text-emerald-600':roas>0&&roas<1?'text-red-600':'', delay:'anim-fade-up anim-d3', tip:METRIC_TIPS.roas })}
+    ${kpiCard({ label:'Conversões', value:fmt(conv), sub:cpa?'CPA '+money(cpa):'', delay:'anim-fade-up anim-d4', tip:METRIC_TIPS.conversions })}
   </div>
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-    ${kpiCard({ label:'Impressões', value:fmt(impr), delay:'anim-fade-up anim-d1' })}
-    ${kpiCard({ label:'Cliques', value:fmt(clicks), delay:'anim-fade-up anim-d2' })}
-    ${kpiCard({ label:'CTR', value:ctr?ctr.toFixed(2)+'%':'—', color:ctr>0&&ctr<1?'text-amber-600':'', delay:'anim-fade-up anim-d3' })}
-    ${kpiCard({ label:'CPC', value:cpc?money(cpc):'—', sub:'custo por clique', delay:'anim-fade-up anim-d4' })}
+    ${kpiCard({ label:'Impressões', value:fmt(impr), delay:'anim-fade-up anim-d1', tip:METRIC_TIPS.impressions })}
+    ${kpiCard({ label:'Cliques', value:fmt(clicks), delay:'anim-fade-up anim-d2', tip:METRIC_TIPS.clicks })}
+    ${kpiCard({ label:'CTR', value:ctr?ctr.toFixed(2)+'%':'—', color:ctr>0&&ctr<1?'text-amber-600':'', delay:'anim-fade-up anim-d3', tip:METRIC_TIPS.ctr })}
+    ${kpiCard({ label:'CPC', value:cpc?money(cpc):'—', sub:'custo por clique', delay:'anim-fade-up anim-d4', tip:METRIC_TIPS.cpc })}
   </div>
 
   ${camps.length ? `
@@ -724,9 +746,9 @@ function viewRevenue() {
   return `
   <!-- KPIs -->
   <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
-    ${kpiCard({ label:'Receita Manual', value:money(total), sub:`${rev.length} lançamentos no período`, color:'text-emerald-600', delay:'anim-fade-up anim-d1' })}
-    ${kpiCard({ label:'Receita via Ads', value:money(adsTotal), sub:'atribuída às campanhas', color:'text-blue-600', delay:'anim-fade-up anim-d2' })}
-    ${kpiCard({ label:'Receita Total', value:money(total+adsTotal), sub:'manual + atribuída', color:'text-gradient', delay:'anim-fade-up anim-d3' })}
+    ${kpiCard({ label:'Receita Manual', value:money(total), sub:`${rev.length} lançamentos no período`, color:'text-emerald-600', delay:'anim-fade-up anim-d1', tip:METRIC_TIPS.manual_rev })}
+    ${kpiCard({ label:'Receita via Ads', value:money(adsTotal), sub:'atribuída às campanhas', color:'text-blue-600', delay:'anim-fade-up anim-d2', tip:METRIC_TIPS.ads_revenue })}
+    ${kpiCard({ label:'Receita Total', value:money(total+adsTotal), sub:'manual + atribuída', color:'text-gradient', delay:'anim-fade-up anim-d3', tip:METRIC_TIPS.total_revenue })}
   </div>
 
   <div class="grid lg:grid-cols-3 gap-4 mb-5">
@@ -737,6 +759,7 @@ function viewRevenue() {
         <thead><tr class="text-gray-400 border-b border-gray-100">
           <th class="py-2.5 px-2 text-left font-medium">Data</th>
           <th class="py-2.5 px-2 text-left font-medium">Fonte</th>
+          <th class="py-2.5 px-2 text-left font-medium">Campanha</th>
           <th class="py-2.5 px-2 text-left font-medium">Descrição</th>
           <th class="py-2.5 px-2 text-right font-medium">Valor</th>
           <th class="w-8"></th>
@@ -745,6 +768,7 @@ function viewRevenue() {
           ${rev.map((r) => `<tr class="hover:bg-gray-50/80 transition-colors">
             <td class="py-2.5 px-2 text-gray-500 whitespace-nowrap">${esc(r.date||'')}</td>
             <td class="py-2.5 px-2"><span class="tag bg-emerald-50 text-emerald-700">${esc(r.source||'Outros')}</span></td>
+            <td class="py-2.5 px-2 text-gray-500 text-[11px]">${r.campaign?`<span class="tag bg-blue-50 text-blue-700">${esc(r.campaign)}</span>`:'—'}</td>
             <td class="py-2.5 px-2 text-gray-600 max-w-[200px] truncate">${esc(r.description||'—')}</td>
             <td class="py-2.5 px-2 text-right font-bold text-emerald-700">${money(r.amount)}</td>
             <td class="py-2.5 px-2 text-right"><button onclick="delRow('revenues','${r.id}')" class="text-gray-300 hover:text-red-500">✕</button></td>
@@ -853,6 +877,30 @@ function viewData() {
       <p class="text-xs text-gray-400 mt-0.5">${q.desc}</p>
     </button>`).join('')}
   </div>
+  <div class="card p-5 mb-5">
+    ${sectionTitle('Gerenciar dados · ' + co().name, `<button onclick="wipeData()" class="text-xs font-semibold text-red-500 hover:text-red-700 border border-red-200 hover:border-red-400 px-3 py-1.5 rounded-xl transition-colors">Apagar tudo</button>`)}
+    <p class="text-xs text-gray-400 mb-4">Apague dados de uma categoria específica ou exporte para fazer backup antes.</p>
+    <div class="grid grid-cols-2 lg:grid-cols-3 gap-2">
+      ${[
+        { col:'ig_daily',  label:'Métricas diárias IG', count:State.igDaily.length,  color:'text-blue-600 border-blue-100 hover:border-blue-300' },
+        { col:'ig_posts',  label:'Posts / Reels',       count:State.posts.length,    color:'text-pink-600 border-pink-100 hover:border-pink-300' },
+        { col:'ads',       label:'Dados de Ads',        count:State.ads.length,      color:'text-sky-600 border-sky-100 hover:border-sky-300' },
+        { col:'revenues',  label:'Receitas manuais',    count:State.revenues.length, color:'text-emerald-600 border-emerald-100 hover:border-emerald-300' },
+        { col:'goals',     label:'Metas',               count:State.goals.length,    color:'text-violet-600 border-violet-100 hover:border-violet-300' },
+        { col:'notes',     label:'Anotações',           count:State.notes.length,    color:'text-amber-600 border-amber-100 hover:border-amber-300' },
+      ].map((item) => `
+        <div class="border ${item.color} rounded-xl p-3 transition-colors">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <p class="text-xs font-semibold text-gray-800">${item.label}</p>
+              <p class="text-[10px] text-gray-400 mt-0.5">${fmt(item.count)} registro${item.count !== 1 ? 's' : ''}</p>
+            </div>
+            <button onclick="clearCollection('${item.col}')" class="text-[10px] text-red-400 hover:text-red-600 font-semibold mt-0.5 whitespace-nowrap">Limpar</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
   <div class="card p-5">
     ${sectionTitle('Histórico · Métricas diárias Instagram')}
     ${ig.length ? `<div class="overflow-x-auto scrollbar-thin -mx-1"><table class="w-full text-xs">
@@ -949,6 +997,194 @@ function viewSettings() {
 }
 
 /* ══════════════════════════════════════════════
+   VIEW: COMPARATIVO HISTÓRICO
+══════════════════════════════════════════════ */
+function viewComparative() {
+  const compCfg = JSON.parse(localStorage.getItem('dsr.comparative') || '{}');
+  const now = new Date();
+  const isoDay = (d) => d.toISOString().slice(0, 10);
+  const defAFrom = isoDay(new Date(now - 30 * 864e5));
+  const defATo   = isoDay(now);
+  const defBFrom = isoDay(new Date(now - 60 * 864e5));
+  const defBTo   = isoDay(new Date(now - 31 * 864e5));
+
+  const aFrom = compCfg.aFrom || defAFrom, aTo = compCfg.aTo || defATo;
+  const bFrom = compCfg.bFrom || defBFrom, bTo = compCfg.bTo || defBTo;
+
+  function inP(d, f, t) { return d >= f && d <= t; }
+
+  function periodKPIs(f, t) {
+    const ig = State.igDaily.filter((r) => inP(r.date, f, t));
+    const ps = State.posts.filter((r) => inP(r.date, f, t));
+    const ad = State.ads.filter((r) => inP(r.date, f, t));
+    const rv = State.revenues.filter((r) => inP(r.date, f, t));
+    const followers    = ig.length ? Math.max(...ig.map((r) => +r.followers || 0)) : 0;
+    const reach        = ig.reduce((s, r) => s + (+r.reach || 0), 0);
+    const profileViews = ig.reduce((s, r) => s + (+r.profile_views || 0), 0);
+    const engRate      = ps.length ? ps.reduce((s, p) => s + Insights.postEngagement(p), 0) / ps.length : 0;
+    const spend        = ad.reduce((s, a) => s + (+a.spend || 0), 0);
+    const adsRevenue   = ad.reduce((s, a) => s + (+a.revenue || 0), 0);
+    const conv         = ad.reduce((s, a) => s + (+a.conversions || 0), 0);
+    const clicks       = ad.reduce((s, a) => s + (+a.clicks || 0), 0);
+    const impr         = ad.reduce((s, a) => s + (+a.impressions || 0), 0);
+    const manualRev    = rv.reduce((s, r) => s + (+r.amount || 0), 0);
+    const totalRev     = adsRevenue + manualRev;
+    const roas         = spend > 0 ? adsRevenue / spend : 0;
+    const cpa          = conv > 0 ? spend / conv : 0;
+    const ctr          = impr > 0 ? (clicks / impr) * 100 : 0;
+    return { followers, reach, profileViews, engRate, postCount:ps.length, spend, adsRevenue, conv, clicks, impr, manualRev, totalRev, roas, cpa, ctr, profit:totalRev - spend };
+  }
+
+  const A = periodKPIs(aFrom, aTo), B = periodKPIs(bFrom, bTo);
+
+  function delta(va, vb) {
+    if (vb === 0 && va === 0) return '—';
+    if (vb === 0) return va > 0 ? '▲ novo' : '—';
+    const p = ((va - vb) / Math.abs(vb)) * 100;
+    return (p >= 0 ? '▲ +' : '▼ ') + p.toFixed(1) + '%';
+  }
+  function dCls(va, vb, inv = false) {
+    if (va === vb) return 'text-gray-400';
+    return (inv ? va < vb : va > vb) ? 'text-emerald-600' : 'text-red-500';
+  }
+
+  function tip(key) {
+    return key ? `<span class="tip-wrap"><button class="tip-icon" onclick="return false">i</button><span class="tip-pop">${METRIC_TIPS[key]||''}</span></span>` : '';
+  }
+
+  const rows = [
+    { l:'Seguidores',        t:'followers',    va:A.followers,    vb:B.followers,    f:fmt,                        inv:false },
+    { l:'Alcance',           t:'reach',        va:A.reach,        vb:B.reach,        f:fmt,                        inv:false },
+    { l:'Visitas ao perfil', t:'profile_views',va:A.profileViews, vb:B.profileViews, f:fmt,                        inv:false },
+    { l:'Engajamento médio', t:'engagement',   va:A.engRate,      vb:B.engRate,      f:(v)=>v.toFixed(1)+'%',      inv:false },
+    { l:'Posts publicados',  t:'',             va:A.postCount,    vb:B.postCount,    f:fmt,                        inv:false },
+    { l:'Investimento Ads',  t:'ads_spend',    va:A.spend,        vb:B.spend,        f:money,                      inv:true  },
+    { l:'Receita Ads',       t:'ads_revenue',  va:A.adsRevenue,   vb:B.adsRevenue,   f:money,                      inv:false },
+    { l:'ROAS',              t:'roas',         va:A.roas,         vb:B.roas,         f:(v)=>v?v.toFixed(2)+'x':'—',inv:false },
+    { l:'Conversões',        t:'conversions',  va:A.conv,         vb:B.conv,         f:fmt,                        inv:false },
+    { l:'CPA',               t:'cpa',          va:A.cpa,          vb:B.cpa,          f:(v)=>v?money(v):'—',        inv:true  },
+    { l:'CTR',               t:'ctr',          va:A.ctr,          vb:B.ctr,          f:(v)=>v?v.toFixed(2)+'%':'—',inv:false },
+    { l:'Receita Manual',    t:'manual_rev',   va:A.manualRev,    vb:B.manualRev,    f:money,                      inv:false },
+    { l:'Receita Total',     t:'total_revenue',va:A.totalRev,     vb:B.totalRev,     f:money,                      inv:false },
+    { l:'Lucro estimado',    t:'profit',       va:A.profit,       vb:B.profit,       f:money,                      inv:false },
+  ];
+
+  function campMap(f, t) {
+    const out = {};
+    State.ads.filter((r) => inP(r.date, f, t)).forEach((a) => {
+      const k = a.campaign || 'Sem nome';
+      if (!out[k]) out[k] = { spend:0, revenue:0, conv:0, clicks:0 };
+      out[k].spend += +a.spend||0; out[k].revenue += +a.revenue||0;
+      out[k].conv += +a.conversions||0; out[k].clicks += +a.clicks||0;
+    });
+    return out;
+  }
+  const cA = campMap(aFrom, aTo), cB = campMap(bFrom, bTo);
+  const allCamps = [...new Set([...Object.keys(cA), ...Object.keys(cB)])].sort();
+
+  return `
+  <div class="card p-5 mb-4">
+    ${sectionTitle('Selecionar períodos para comparar')}
+    <div class="grid lg:grid-cols-2 gap-4 mb-4">
+      <div>
+        <p class="text-xs font-bold text-blue-600 mb-2">Período A</p>
+        <div class="flex gap-2 items-center">
+          <input id="comp-a-from" type="date" value="${aFrom}" class="flex-1 border border-blue-200 rounded-xl px-3 py-2 text-sm bg-blue-50/60" />
+          <span class="text-gray-400 text-xs font-medium">até</span>
+          <input id="comp-a-to"   type="date" value="${aTo}"   class="flex-1 border border-blue-200 rounded-xl px-3 py-2 text-sm bg-blue-50/60" />
+        </div>
+      </div>
+      <div>
+        <p class="text-xs font-bold text-violet-600 mb-2">Período B</p>
+        <div class="flex gap-2 items-center">
+          <input id="comp-b-from" type="date" value="${bFrom}" class="flex-1 border border-violet-200 rounded-xl px-3 py-2 text-sm bg-violet-50/60" />
+          <span class="text-gray-400 text-xs font-medium">até</span>
+          <input id="comp-b-to"   type="date" value="${bTo}"   class="flex-1 border border-violet-200 rounded-xl px-3 py-2 text-sm bg-violet-50/60" />
+        </div>
+      </div>
+    </div>
+    <button onclick="applyComparative()" class="btn-accent w-full py-2.5">Comparar períodos</button>
+  </div>
+
+  <div class="card p-5 mb-4">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-gray-900 text-sm">Métricas comparadas</h2>
+      <div class="flex items-center gap-4 text-xs font-bold">
+        <span class="text-blue-600">A · ${aFrom} → ${aTo}</span>
+        <span class="text-violet-600">B · ${bFrom} → ${bTo}</span>
+      </div>
+    </div>
+    <div class="overflow-x-auto -mx-1 scrollbar-thin">
+      <table class="w-full text-sm">
+        <thead><tr class="border-b border-gray-100">
+          <th class="py-2 px-3 text-left text-xs font-medium text-gray-400">Métrica</th>
+          <th class="py-2 px-3 text-center text-xs font-bold text-blue-600">Período A</th>
+          <th class="py-2 px-3 text-center text-xs font-bold text-violet-600">Período B</th>
+          <th class="py-2 px-3 text-center text-xs font-medium text-gray-400">Variação A→B</th>
+        </tr></thead>
+        <tbody class="divide-y divide-gray-50">
+          ${rows.map((r) => `<tr class="hover:bg-gray-50/60 transition-colors">
+            <td class="py-2.5 px-3 text-xs text-gray-700 font-medium">
+              <span class="flex items-center">${esc(r.l)}${tip(r.t)}</span>
+            </td>
+            <td class="py-2.5 px-3 text-center text-sm font-bold text-blue-700">${r.f(r.va)}</td>
+            <td class="py-2.5 px-3 text-center text-sm font-bold text-violet-700">${r.f(r.vb)}</td>
+            <td class="py-2.5 px-3 text-center text-xs font-bold ${dCls(r.va, r.vb, r.inv)}">${delta(r.va, r.vb)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  ${allCamps.length ? `
+  <div class="card p-5">
+    ${sectionTitle('Campanhas · comparativo')}
+    <div class="overflow-x-auto -mx-1 scrollbar-thin">
+      <table class="w-full text-xs">
+        <thead><tr class="border-b border-gray-100">
+          <th class="py-2 px-3 text-left text-xs font-medium text-gray-400">Campanha</th>
+          <th class="py-2 px-3 text-center text-[10px] font-bold text-blue-600" colspan="3">Período A · Invest. / Receita / ROAS</th>
+          <th class="py-2 px-3 text-center text-[10px] font-bold text-violet-600" colspan="3">Período B · Invest. / Receita / ROAS</th>
+        </tr></thead>
+        <tbody class="divide-y divide-gray-50">
+          ${allCamps.map((camp) => {
+            const ca = cA[camp]||{spend:0,revenue:0,conv:0}, cb = cB[camp]||{spend:0,revenue:0,conv:0};
+            const ra = ca.spend>0?ca.revenue/ca.spend:0, rb = cb.spend>0?cb.revenue/cb.spend:0;
+            return `<tr class="hover:bg-gray-50/60">
+              <td class="py-2.5 px-3 font-semibold text-gray-900 max-w-[140px] truncate">${esc(camp)}</td>
+              <td class="py-2.5 px-3 text-center text-blue-700 font-semibold">${money(ca.spend)}</td>
+              <td class="py-2.5 px-3 text-center text-emerald-700 font-semibold">${money(ca.revenue)}</td>
+              <td class="py-2.5 px-3 text-center font-bold ${ra>=2?'text-emerald-600':ra>0&&ra<1?'text-red-500':'text-gray-600'}">${ra?ra.toFixed(2)+'x':'—'}</td>
+              <td class="py-2.5 px-3 text-center text-violet-700 font-semibold">${money(cb.spend)}</td>
+              <td class="py-2.5 px-3 text-center text-emerald-600 font-semibold">${money(cb.revenue)}</td>
+              <td class="py-2.5 px-3 text-center font-bold ${rb>=2?'text-emerald-600':rb>0&&rb<1?'text-red-500':'text-gray-600'}">${rb?rb.toFixed(2)+'x':'—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>` : emptyState('Adicione dados de Ads para ver comparativo de campanhas.')}
+  `;
+}
+function applyComparative() {
+  const aFrom = $('#comp-a-from')?.value, aTo = $('#comp-a-to')?.value;
+  const bFrom = $('#comp-b-from')?.value, bTo = $('#comp-b-to')?.value;
+  if (!aFrom || !aTo || !bFrom || !bTo) { toast('Preencha todas as datas.', 'warn'); return; }
+  localStorage.setItem('dsr.comparative', JSON.stringify({ aFrom, aTo, bFrom, bTo }));
+  renderView();
+}
+window.applyComparative = applyComparative;
+
+function clearCollection(col) {
+  const label = { ig_daily:'métricas diárias do Instagram', ig_posts:'posts', ads:'dados de Ads', goals:'metas', notes:'anotações', revenues:'receitas' }[col] || col;
+  if (!confirm(`Apagar todos os ${label}? Esta ação não pode ser desfeita.`)) return;
+  DB.clearCollection(col);
+  loadAll().then(renderView);
+  toast(`${label.charAt(0).toUpperCase() + label.slice(1)} apagados.`);
+}
+window.clearCollection = clearCollection;
+
+/* ══════════════════════════════════════════════
    FORMULÁRIOS
 ══════════════════════════════════════════════ */
 const FORMS = {
@@ -982,6 +1218,7 @@ const FORMS = {
   revenue: { title:'Receita Manual', col:'revenues', fields:[
     { k:'date', label:'Data', type:'date', def:today, required:true },
     { k:'source', label:'Fonte', type:'text', required:true, placeholder:'Ex.: Venda consultoria, Produto digital...' },
+    { k:'campaign', label:'Campanha de origem (opcional)', type:'text', placeholder:'Ex.: Funil de vendas, Criativos de março...' },
     { k:'amount', label:'Valor (R$)', type:'number', step:'0.01', required:true },
     { k:'description', label:'Descrição (opcional)', type:'textarea' },
   ]},
