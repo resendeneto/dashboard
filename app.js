@@ -1,0 +1,1152 @@
+/* ============================================================
+   Dashboard Social — App v3
+   Novidades: cores atualizadas · receita manual · Meta API auto-sync
+   ============================================================ */
+
+const COMPANIES = [
+  {
+    id: 'oasis',
+    name: 'Oásis',
+    desc: 'Hub & espaço de coworking',
+    initial: 'O',
+    accent:   '#18181B',
+    light:    '#F4F4F5',
+    dark:     '#09090B',
+    rgb:      '24,24,27',
+    gradient: 'linear-gradient(135deg,#3F3F46,#18181B)',
+    sample: {
+      posts: [['Reel','Tour pelo espaço Oásis'],['Carrossel','5 razões para coworcar'],['Reel','Evento networking'],['Foto','Espaço reformado'],['Reel','Depoimento de membro'],['Carrossel','Como alugar uma sala']],
+      camps: ['Captação de membros','Evento de inauguração','Remarketing cowork'],
+    },
+  },
+  {
+    id: 'family',
+    name: 'Family Experience',
+    desc: 'Experiências inesquecíveis em família',
+    initial: 'F',
+    accent:   '#0891B2',
+    light:    '#CFFAFE',
+    dark:     '#164E63',
+    rgb:      '8,145,178',
+    gradient: 'linear-gradient(135deg,#0EA5E9,#0891B2)',
+    sample: {
+      posts: [['Reel','Aventura em família'],['Carrossel','10 atividades fim de semana'],['Reel','Acampamento kids'],['Foto','Família feliz no parque'],['Reel','Bastidores do evento'],['Carrossel','Como reservar']],
+      camps: ['Captação famílias','Promoção férias','Remarketing experiências'],
+    },
+  },
+  {
+    id: 'resende',
+    name: 'Resende Neto',
+    desc: 'Marca pessoal · Fé & Finanças',
+    initial: 'R',
+    accent:   '#15803D',
+    light:    '#DCFCE7',
+    dark:     '#14532D',
+    rgb:      '21,128,61',
+    gradient: 'linear-gradient(135deg,#16A34A,#15803D)',
+    sample: {
+      posts: [['Reel','Como sair das dívidas'],['Carrossel','5 erros com cartão'],['Reel','Fé e finanças'],['Foto','Reflexão do dia'],['Reel','Orçamento familiar'],['Carrossel','Reserva de emergência']],
+      camps: ['Seguidores - Frio','Conversão - Curso','Remarketing'],
+    },
+  },
+];
+
+/* ── Estado ── */
+const State = {
+  tab: 'overview', range: 30, company: null,
+  dateFrom: null, dateTo: null,
+  igDaily: [], posts: [], ads: [], goals: [], notes: [], revenues: [],
+  charts: {},
+};
+
+/* ── Utils ── */
+const $ = (sel, el = document) => el.querySelector(sel);
+const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+const nf  = new Intl.NumberFormat('pt-BR');
+const cf  = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmt   = (n) => nf.format(Math.round(+n || 0));
+const money = (n) => cf.format(+n || 0);
+const today = () => new Date().toISOString().slice(0, 10);
+const esc   = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+function co() { return COMPANIES.find((c) => c.id === State.company) || COMPANIES[2]; }
+
+function applyTheme(c) {
+  const r = document.documentElement.style;
+  r.setProperty('--accent',       c.accent);
+  r.setProperty('--accent-light', c.light);
+  r.setProperty('--accent-dark',  c.dark);
+  r.setProperty('--accent-rgb',   c.rgb);
+}
+
+function withinRange(dateStr) {
+  if (!dateStr) return true;
+  if (State.dateFrom && State.dateTo) return dateStr >= State.dateFrom && dateStr <= State.dateTo;
+  if (State.range === 1) return dateStr === today();
+  const d = new Date(dateStr + 'T12:00:00');
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - State.range);
+  return d >= cutoff;
+}
+
+/* ── Toast ── */
+function toast(msg, type = 'ok') {
+  const icon  = { ok:'✓', err:'✕', warn:'!' }[type];
+  const color = { ok:'#111827', err:'#DC2626', warn:'#D97706' }[type];
+  const el = document.createElement('div');
+  el.className = 'toast-item pointer-events-auto flex items-center gap-2.5 text-sm text-white px-4 py-3 rounded-2xl shadow-2xl';
+  el.style.cssText = `background:${color};min-width:180px;max-width:320px`;
+  el.innerHTML = `<span class="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold flex-shrink-0">${icon}</span>${esc(msg)}`;
+  $('#toast-root').appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity .3s,transform .3s';
+    el.style.opacity = '0'; el.style.transform = 'translateX(16px)';
+    setTimeout(() => el.remove(), 300);
+  }, 2800);
+}
+
+/* ── Carrega dados ── */
+async function loadAll() {
+  const [igDaily, posts, ads, goals, notes, revenues] = await Promise.all([
+    DB.list('ig_daily'), DB.list('ig_posts'), DB.list('ads'),
+    DB.list('goals'), DB.list('notes'), DB.list('revenues'),
+  ]);
+  Object.assign(State, { igDaily, posts, ads, goals, notes, revenues });
+}
+
+/* ── KPIs ── */
+function computeKPIs() {
+  const ig  = State.igDaily.filter((r) => withinRange(r.date)).sort((a, b) => a.date < b.date ? -1 : 1);
+  const ps  = State.posts.filter((r) => withinRange(r.date));
+  const ad  = State.ads.filter((r) => withinRange(r.date));
+  const rev = State.revenues.filter((r) => withinRange(r.date));
+
+  const followersNow   = ig.length ? +ig[ig.length - 1].followers || 0 : 0;
+  const followersStart = ig.length ? +ig[0].followers || 0 : 0;
+  const followersDelta = followersNow - followersStart;
+  const reach        = ig.reduce((s, r) => s + (+r.reach || 0), 0);
+  const profileViews = ig.reduce((s, r) => s + (+r.profile_views || 0), 0);
+
+  let engSum = 0, engCount = 0;
+  ps.forEach((p) => { const e = Insights.postEngagement(p); if (p.reach) { engSum += e; engCount++; } });
+  const engRate = engCount ? engSum / engCount : 0;
+
+  const adsSpend   = ad.reduce((s, a) => s + (+a.spend || 0), 0);
+  const adsRevenue = ad.reduce((s, a) => s + (+a.revenue || 0), 0);
+  const conv       = ad.reduce((s, a) => s + (+a.conversions || 0), 0);
+  const clicks     = ad.reduce((s, a) => s + (+a.clicks || 0), 0);
+  const impr       = ad.reduce((s, a) => s + (+a.impressions || 0), 0);
+  const manualRev  = rev.reduce((s, r) => s + (+r.amount || 0), 0);
+  const totalRev   = adsRevenue + manualRev;
+
+  const roas = adsSpend > 0 ? totalRev / adsSpend : 0;
+  const cpa  = conv > 0 ? adsSpend / conv : 0;
+  const ctr  = impr > 0 ? (clicks / impr) * 100 : 0;
+  const cpc  = clicks > 0 ? adsSpend / clicks : 0;
+
+  return {
+    followersNow, followersDelta, reach, profileViews, engRate,
+    adsSpend, adsRevenue, manualRev, totalRev, conv, roas, cpa,
+    postCount: ps.length, clicks, impr, ctr, cpc,
+    profit: totalRev - adsSpend,
+  };
+}
+
+/* ══════════════════════════════════════════════
+   META API AUTO-SYNC
+══════════════════════════════════════════════ */
+const META_BASE = 'https://graph.facebook.com/v19.0';
+
+async function metaGet(path, params = {}) {
+  const cfg = DB.getCompanyConfig();
+  const qs  = new URLSearchParams({ ...params, access_token: cfg.metaToken }).toString();
+  const res = await fetch(`${META_BASE}${path}?${qs}`);
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message);
+  return json;
+}
+
+async function syncInstagram(cfg) {
+  const since = Math.floor((Date.now() - State.range * 24 * 3600000) / 1000);
+  const until = Math.floor(Date.now() / 1000);
+
+  // Followers total (today)
+  const igUser = await metaGet(`/${cfg.igAccountId}`, { fields: 'followers_count' });
+
+  // Daily insights
+  const insights = await metaGet(`/${cfg.igAccountId}/insights`, {
+    metric: 'reach,impressions,profile_views,website_clicks',
+    period: 'day', since, until,
+  });
+
+  const byDate = {};
+  (insights.data || []).forEach((metric) => {
+    (metric.values || []).forEach((v) => {
+      const d = v.end_time.slice(0, 10);
+      if (!byDate[d]) byDate[d] = { date: d };
+      const map = { reach: 'reach', impressions: 'impressions', profile_views: 'profile_views', website_clicks: 'website_clicks' };
+      if (map[metric.name]) byDate[d][map[metric.name]] = v.value;
+    });
+  });
+
+  const todayStr = today();
+  if (!byDate[todayStr]) byDate[todayStr] = { date: todayStr };
+  byDate[todayStr].followers = igUser.followers_count;
+
+  for (const [date, row] of Object.entries(byDate)) {
+    const existing = State.igDaily.find((r) => r.date === date);
+    if (existing) await DB.update('ig_daily', existing.id, row);
+    else await DB.insert('ig_daily', row);
+  }
+  return Object.keys(byDate).length;
+}
+
+async function syncAds(cfg) {
+  const sinceDate = new Date(Date.now() - State.range * 24 * 3600000).toISOString().slice(0, 10);
+  const untilDate = today();
+
+  const adsData = await metaGet(`/act_${cfg.metaAdAccount}/insights`, {
+    fields: 'campaign_name,spend,impressions,clicks,actions,action_values,date_start',
+    time_range: JSON.stringify({ since: sinceDate, until: untilDate }),
+    time_increment: 1,
+    level: 'campaign',
+  });
+
+  let count = 0;
+  for (const row of (adsData.data || [])) {
+    const convTypes = ['purchase', 'lead', 'complete_registration', 'subscribe'];
+    const convAction = (row.actions || []).find((a) => convTypes.includes(a.action_type));
+    const revAction  = (row.action_values || []).find((a) => a.action_type === 'purchase');
+
+    const record = {
+      date:        row.date_start,
+      campaign:    row.campaign_name,
+      spend:       +(row.spend) || 0,
+      impressions: +(row.impressions) || 0,
+      clicks:      +(row.clicks) || 0,
+      conversions: convAction ? +convAction.value : 0,
+      revenue:     revAction  ? +revAction.value  : 0,
+    };
+
+    const existing = State.ads.find((a) => a.date === row.date_start && a.campaign === row.campaign_name);
+    if (existing) await DB.update('ads', existing.id, record);
+    else await DB.insert('ads', record);
+    count++;
+  }
+  return count;
+}
+
+async function syncMeta(manual = true) {
+  const cfg = DB.getCompanyConfig();
+  if (!cfg.metaToken) { if (manual) toast('Configure o token Meta em Configurações.', 'warn'); return; }
+
+  const btnEl = $('#sync-meta-btn');
+  if (btnEl) { btnEl.textContent = 'Sincronizando…'; btnEl.disabled = true; }
+
+  const synced = [], errors = [];
+
+  if (cfg.igAccountId) {
+    try { const n = await syncInstagram(cfg); synced.push(`IG (${n} dias)`); }
+    catch (e) { errors.push('Instagram: ' + e.message); }
+  }
+  if (cfg.metaAdAccount) {
+    try { const n = await syncAds(cfg); synced.push(`Ads (${n} registros)`); }
+    catch (e) { errors.push('Ads: ' + e.message); }
+  }
+
+  DB.setCompanyConfig({ lastSync: new Date().toISOString() });
+  await loadAll();
+  render();
+
+  if (manual) {
+    if (errors.length) errors.forEach((e) => toast(e, 'err'));
+    else if (synced.length) toast('Sincronizado: ' + synced.join(' · '));
+    else toast('Configure as credenciais da Meta em Configurações.', 'warn');
+  } else if (synced.length) {
+    toast('Sincronizado: ' + synced.join(' · '));
+  }
+}
+
+async function autoSyncIfNeeded() {
+  const cfg = DB.getCompanyConfig();
+  if (!cfg.metaToken || !cfg.igAccountId) return;
+  const last = cfg.lastSync ? new Date(cfg.lastSync) : null;
+  const sixHoursAgo = new Date(Date.now() - 6 * 3600000);
+  if (!last || last < sixHoursAgo) {
+    toast('Sincronizando Meta API automaticamente…');
+    await syncMeta(false);
+  }
+}
+
+/* ══════════════════════════════════════════════
+   SELETOR DE EMPRESA
+══════════════════════════════════════════════ */
+function renderSelector() {
+  $('#app').innerHTML = `
+  <div id="selector-bg" class="min-h-screen flex flex-col items-center justify-center px-6 py-16 relative overflow-hidden">
+    <div class="pointer-events-none absolute inset-0 overflow-hidden">
+      <div style="position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(8,145,178,.15) 0%,transparent 70%);top:-120px;left:-80px"></div>
+      <div style="position:absolute;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(21,128,61,.12) 0%,transparent 70%);bottom:-80px;right:-60px"></div>
+    </div>
+    <div class="relative z-10 w-full max-w-3xl">
+      <div class="text-center mb-14 anim-fade-up">
+        <div class="inline-flex items-center gap-2.5 mb-5">
+          <div class="w-9 h-9 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <span class="text-white/60 text-sm font-medium tracking-wide">Dashboard Social</span>
+        </div>
+        <h1 class="text-4xl sm:text-5xl font-black text-white leading-tight mb-3">Qual empresa<br/>vamos analisar?</h1>
+        <p class="text-white/40 text-base">Dados isolados e sincronização automática por empresa</p>
+      </div>
+      <div class="grid sm:grid-cols-3 gap-4">
+        ${COMPANIES.map((c, i) => `
+          <button onclick="selectCompany('${c.id}')" class="selector-card p-7 text-left anim-fade-up anim-d${i + 1}">
+            <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black mb-6 text-white"
+              style="background:${c.gradient};box-shadow:0 8px 24px rgba(${c.rgb},.4)">${c.initial}</div>
+            <p class="font-bold text-lg text-white mb-1">${c.name}</p>
+            <p class="text-sm text-white/50 leading-relaxed mb-6">${c.desc}</p>
+            <div class="flex items-center gap-1.5 text-sm font-semibold" style="color:rgba(${c.rgb},1)">
+              Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </button>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   TABS
+══════════════════════════════════════════════ */
+const TABS = [
+  { id: 'overview',  label: 'Visão Geral',  icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>' },
+  { id: 'instagram', label: 'Instagram',    icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".5" fill="currentColor"/></svg>' },
+  { id: 'ads',       label: 'Meta Ads',     icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>' },
+  { id: 'revenue',   label: 'Receita',      icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 1 0 0 7h5a3.5 3.5 0 1 1 0 7H6"/></svg>' },
+  { id: 'goals',     label: 'Metas',        icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>' },
+  { id: 'ideas',     label: 'Sugestões',    icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' },
+  { id: 'data',      label: 'Dados',        icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>' },
+  { id: 'settings',  label: 'Config',       icon: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>' },
+];
+
+/* ══════════════════════════════════════════════
+   RENDER PRINCIPAL
+══════════════════════════════════════════════ */
+function render() {
+  if (!State.company) { renderSelector(); return; }
+  const c = co(), mode = DB.mode(), cfg = DB.getCompanyConfig();
+  const hasMeta = !!(cfg.metaToken && cfg.igAccountId);
+  const lastSync = cfg.lastSync ? new Date(cfg.lastSync).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : null;
+
+  $('#app').innerHTML = `
+  <header class="bg-white/95 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6">
+      <div class="flex items-center gap-4 py-3">
+        <button onclick="showSelector()" class="flex items-center gap-3 group">
+          <div class="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-black shadow-lg transition-transform group-hover:scale-105"
+            style="background:${c.gradient};box-shadow:0 4px 12px rgba(${c.rgb},.35)">${c.initial}</div>
+          <div class="hidden sm:block text-left">
+            <p class="text-sm font-bold text-gray-900 leading-none">${c.name}</p>
+            <p class="text-[10px] text-gray-400 mt-0.5">trocar empresa</p>
+          </div>
+        </button>
+        <div class="flex-1"></div>
+        ${hasMeta ? `
+        <button onclick="syncMeta()" id="sync-meta-btn" title="Última sincronização${lastSync ? ': '+lastSync : ' nunca'}"
+          class="hidden sm:flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all"
+          style="border-color:${c.accent};color:${c.accent}">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Sincronizar
+        </button>` : ''}
+        <div class="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full ${mode==='supabase'?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}">
+          <span class="w-1.5 h-1.5 rounded-full dot-live ${mode==='supabase'?'bg-emerald-500':'bg-amber-500'}"></span>
+          ${mode==='supabase'?'Nuvem':'Local'}
+        </div>
+        <div class="flex items-center gap-0.5 border border-gray-200 rounded-xl overflow-hidden text-xs font-medium bg-white">
+          ${[{v:1,l:'Hoje'},{v:7,l:'7D'},{v:30,l:'30D'},{v:90,l:'90D'},{v:3650,l:'Tudo'}].map(({v,l})=>{
+            const active = !State.dateFrom && State.range===v;
+            return `<button data-range="${v}" class="px-2.5 py-1.5 transition-colors ${active?'text-white':'text-gray-500 hover:bg-gray-50'}" style="${active?'background:var(--accent)':''}">${l}</button>`;
+          }).join('')}
+          <button id="btn-cal" title="Período personalizado" class="px-2.5 py-1.5 transition-colors ${State.dateFrom?'text-white':'text-gray-500 hover:bg-gray-50'}" style="${State.dateFrom?'background:var(--accent)':''}">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </button>
+        </div>
+        <div id="cal-panel" class="${State.dateFrom?'flex':'hidden'} items-center gap-1.5 text-xs bg-white border border-gray-200 rounded-xl px-3 py-1.5">
+          <input type="date" id="date-from" value="${State.dateFrom||''}" class="border-0 bg-transparent text-xs text-gray-700 outline-none cursor-pointer" />
+          <span class="text-gray-300">→</span>
+          <input type="date" id="date-to" value="${State.dateTo||''}" class="border-0 bg-transparent text-xs text-gray-700 outline-none cursor-pointer" />
+          <button onclick="applyCustomRange()" class="ml-1 px-2 py-0.5 rounded-lg text-white text-xs" style="background:var(--accent)">OK</button>
+          <button onclick="clearCustomRange()" class="text-gray-400 hover:text-red-500 ml-0.5">✕</button>
+        </div>
+      </div>
+      <nav class="flex gap-1 overflow-x-auto scrollbar-thin pb-2">
+        ${TABS.map((t) => `
+          <button data-tab="${t.id}" class="nav-btn ${State.tab===t.id?'active':''} flex items-center gap-1.5">
+            ${t.icon}${t.label}
+          </button>`).join('')}
+      </nav>
+    </div>
+  </header>
+  <main class="max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 flex-1" id="view"></main>
+  <footer class="max-w-7xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between text-xs text-gray-400">
+    <span>Dashboard Social · <span class="font-semibold" style="color:${c.accent}">${c.name}</span></span>
+    <span>${hasMeta&&lastSync ? '⟳ Meta sync '+lastSync : 'dados '+( mode==='supabase'?'na nuvem':'locais')}</span>
+  </footer>`;
+
+  $$('[data-range]').forEach((b) => (b.onclick = () => {
+    State.range = +b.dataset.range; State.dateFrom = null; State.dateTo = null; render();
+  }));
+  $('#btn-cal').onclick = () => {
+    const p = $('#cal-panel');
+    if (p.classList.contains('hidden')) { p.classList.remove('hidden'); p.classList.add('flex'); }
+    else { p.classList.add('hidden'); p.classList.remove('flex'); }
+  };
+  $$('[data-tab]').forEach((b) => (b.onclick = () => { State.tab = b.dataset.tab; render(); }));
+  renderView();
+}
+
+function renderView() {
+  Object.values(State.charts).forEach((c) => { try { c.destroy(); } catch {} });
+  State.charts = {};
+  const fn = { overview: viewOverview, instagram: viewInstagram, ads: viewAds, revenue: viewRevenue, goals: viewGoals, ideas: viewIdeas, data: viewData, settings: viewSettings }[State.tab];
+  const view = $('#view');
+  view.innerHTML = fn();
+  view.style.animation = 'none'; view.offsetHeight;
+  view.style.animation = 'fadeUp .3s cubic-bezier(.22,1,.36,1) both';
+  if (fn.after) fn.after();
+}
+
+/* ══════════════════════════════════════════════
+   COMPONENTES
+══════════════════════════════════════════════ */
+function kpiCard({ label, value, sub, color = '', delay = '' }) {
+  return `<div class="card p-5 ${delay}">
+    <p class="text-xs font-medium text-gray-400 mb-2">${label}</p>
+    <p class="text-2xl font-black tracking-tight ${color} kpi-num">${value}</p>
+    <p class="text-xs text-gray-400 mt-1.5">${sub || '&nbsp;'}</p>
+  </div>`;
+}
+
+function sectionTitle(title, action = '') {
+  return `<div class="flex items-center justify-between mb-4"><h2 class="font-bold text-gray-900 text-sm">${title}</h2>${action}</div>`;
+}
+
+function emptyState(text, btn = '') {
+  return `<div class="flex flex-col items-center justify-center py-14 text-gray-400">
+    <div class="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    </div>
+    <p class="text-sm text-center max-w-[220px] leading-relaxed">${text}</p>${btn}
+  </div>`;
+}
+
+function addBtn(label, onclick) {
+  return `<button onclick="${onclick}" class="btn-accent">${label}</button>`;
+}
+
+function typeBadge(type) {
+  const map = { Reel:'bg-pink-50 text-pink-700', Carrossel:'bg-blue-50 text-blue-700', Foto:'bg-amber-50 text-amber-700', Story:'bg-purple-50 text-purple-700' };
+  return `<span class="tag ${map[type]||'bg-gray-100 text-gray-600'}">${esc(type||'—')}</span>`;
+}
+
+function gradientFill(ctx, color) {
+  const g = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height);
+  g.addColorStop(0, color + '40'); g.addColorStop(1, color + '00');
+  return g;
+}
+
+function baseChartOpts() {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: true, labels: { boxWidth: 8, boxHeight: 8, borderRadius: 4, font: { size: 11, family:'Inter' }, color:'#6B7280' } },
+      tooltip: { backgroundColor:'#111827', titleColor:'#F9FAFB', bodyColor:'#D1D5DB', cornerRadius:12, padding:10, titleFont:{ size:11,weight:'600' }, bodyFont:{ size:11 } },
+    },
+    scales: {
+      x: { grid:{ display:false }, border:{ display:false }, ticks:{ font:{size:10,family:'Inter'}, color:'#9CA3AF', maxRotation:0, autoSkip:true, maxTicksLimit:7 } },
+      y: { grid:{ color:'#F3F4F6' }, border:{ display:false }, ticks:{ font:{size:10,family:'Inter'}, color:'#9CA3AF' }, beginAtZero:true },
+    },
+  };
+}
+
+/* ══════════════════════════════════════════════
+   VIEW: VISÃO GERAL
+══════════════════════════════════════════════ */
+function viewOverview() {
+  const k = computeKPIs();
+  const ideas = Insights.generate({ igDaily: State.igDaily, posts: State.posts, ads: State.ads, goals: State.goals }).slice(0, 4);
+  setTimeout(drawOverviewCharts, 0);
+
+  return `
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+    ${kpiCard({ label:'Seguidores', value:fmt(k.followersNow), sub:`${k.followersDelta>=0?'+':''}${fmt(k.followersDelta)} no período`, color:'text-gradient', delay:'anim-fade-up anim-d1' })}
+    ${kpiCard({ label:'Alcance total', value:fmt(k.reach), sub:`${fmt(k.profileViews)} visitas ao perfil`, delay:'anim-fade-up anim-d2' })}
+    ${kpiCard({ label:'Engajamento médio', value:k.engRate.toFixed(1)+'%', sub:`${k.postCount} posts no período`, color:k.engRate>=3?'text-emerald-600':'', delay:'anim-fade-up anim-d3' })}
+    ${kpiCard({ label:'Investimento Ads', value:money(k.adsSpend), sub:`${fmt(k.conv)} conversões`, color:'text-blue-600', delay:'anim-fade-up anim-d4' })}
+  </div>
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+    ${kpiCard({ label:'Receita Total', value:money(k.totalRev), sub:`Ads ${money(k.adsRevenue)} + Manual ${money(k.manualRev)}`, color:'text-emerald-600', delay:'anim-fade-up anim-d1' })}
+    ${kpiCard({ label:'ROAS', value:k.roas?k.roas.toFixed(2)+'x':'—', sub:'retorno sobre investimento', color:k.roas>=2?'text-emerald-600':k.roas>0&&k.roas<1?'text-red-600':'', delay:'anim-fade-up anim-d2' })}
+    ${kpiCard({ label:'CPA', value:k.cpa?money(k.cpa):'—', sub:'custo por conversão', delay:'anim-fade-up anim-d3' })}
+    ${kpiCard({ label:'Lucro estimado', value:money(k.profit), sub:'receita total − investimento', color:k.profit>=0?'text-emerald-600':'text-red-600', delay:'anim-fade-up anim-d4' })}
+  </div>
+  <div class="grid lg:grid-cols-3 gap-4 mb-5">
+    <div class="card p-5 lg:col-span-2 anim-fade-up anim-d1">
+      ${sectionTitle('Crescimento de seguidores')}
+      <div style="height:220px"><canvas id="ch-followers"></canvas></div>
+    </div>
+    <div class="card p-5 anim-fade-up anim-d2">
+      ${sectionTitle('Invest. × Receita')}
+      <div style="height:220px"><canvas id="ch-adsmix"></canvas></div>
+    </div>
+  </div>
+  <div class="card p-5 anim-fade-up anim-d2">
+    ${sectionTitle('Sugestões automáticas', `<button data-tab-jump="ideas" class="text-xs font-semibold" style="color:var(--accent)">Ver todas →</button>`)}
+    <div class="grid sm:grid-cols-2 gap-2">
+      ${ideas.length ? ideas.map(insightCard).join('') : emptyState('Adicione dados para ver sugestões automáticas.')}
+    </div>
+  </div>`;
+}
+viewOverview.after = () => {
+  $$('[data-tab-jump]').forEach((b) => (b.onclick = () => { State.tab = b.dataset.tabJump; render(); }));
+};
+
+function insightCard(i) {
+  const cfg = { good:{ bg:'bg-emerald-50', border:'border-emerald-100', title:'text-emerald-800', icon:'✅' }, warn:{ bg:'bg-amber-50', border:'border-amber-100', title:'text-amber-800', icon:'⚠️' }, bad:{ bg:'bg-red-50', border:'border-red-100', title:'text-red-800', icon:'🔻' }, tip:{ bg:'bg-blue-50', border:'border-blue-100', title:'text-blue-800', icon:'💡' } }[i.level] || { bg:'bg-gray-50', border:'border-gray-100', title:'text-gray-800', icon:'•' };
+  return `<div class="${cfg.bg} border ${cfg.border} rounded-2xl p-4">
+    <p class="font-bold text-sm ${cfg.title} flex items-center gap-2">${cfg.icon} ${esc(i.title)}</p>
+    <p class="text-xs text-gray-600 mt-1 leading-relaxed">${esc(i.text)}</p>
+  </div>`;
+}
+
+function drawOverviewCharts() {
+  const c = co();
+  const ig = State.igDaily.filter((r) => withinRange(r.date)).sort((a, b) => a.date < b.date ? -1 : 1);
+  const fEl = $('#ch-followers');
+  if (fEl) {
+    const ctx = fEl.getContext('2d');
+    State.charts.followers = new Chart(fEl, {
+      type: 'line',
+      data: { labels: ig.map((r) => r.date.slice(5)), datasets: [{ label:'Seguidores', data:ig.map((r)=>+r.followers||0), borderColor:c.accent, backgroundColor:gradientFill(ctx,c.accent), fill:true, tension:.4, pointRadius:0, pointHoverRadius:5, borderWidth:2.5 }] },
+      options: baseChartOpts(),
+    });
+  }
+  const ad = State.ads.filter((r) => withinRange(r.date));
+  const byDate = {};
+  ad.forEach((a) => { byDate[a.date]=byDate[a.date]||{spend:0,rev:0}; byDate[a.date].spend+=+a.spend||0; byDate[a.date].rev+=+a.revenue||0; });
+  const rvByDate = {};
+  State.revenues.filter((r) => withinRange(r.date)).forEach((r) => { rvByDate[r.date]=(rvByDate[r.date]||0)+(+r.amount||0); });
+  const dates = [...new Set([...Object.keys(byDate), ...Object.keys(rvByDate)])].sort();
+  const mEl = $('#ch-adsmix');
+  if (mEl) {
+    State.charts.adsmix = new Chart(mEl, {
+      type: 'bar',
+      data: {
+        labels: dates.map((d) => d.slice(5)),
+        datasets: [
+          { label:'Investido',      data:dates.map((d)=>byDate[d]?.spend||0),  backgroundColor:'#60A5FA', borderRadius:6, borderSkipped:false },
+          { label:'Receita Ads',    data:dates.map((d)=>byDate[d]?.rev||0),    backgroundColor:'#34D399', borderRadius:6, borderSkipped:false },
+          { label:'Receita Manual', data:dates.map((d)=>rvByDate[d]||0),       backgroundColor:c.accent+'BB', borderRadius:6, borderSkipped:false },
+        ],
+      },
+      options: baseChartOpts(),
+    });
+  }
+}
+
+/* ══════════════════════════════════════════════
+   VIEW: INSTAGRAM
+══════════════════════════════════════════════ */
+function viewInstagram() {
+  const ps = State.posts.filter((r) => withinRange(r.date)).map((p) => ({ ...p, eng:Insights.postEngagement(p) })).sort((a, b) => a.date < b.date ? 1 : -1);
+  setTimeout(drawIgCharts, 0);
+  return `
+  <div class="grid lg:grid-cols-2 gap-4 mb-4">
+    <div class="card p-5">${sectionTitle('Alcance diário')}<div style="height:210px"><canvas id="ch-reach"></canvas></div></div>
+    <div class="card p-5">${sectionTitle('Engajamento por post')}<div style="height:210px"><canvas id="ch-posteng"></canvas></div></div>
+  </div>
+  <div class="card p-5">
+    ${sectionTitle('Posts & Reels', addBtn('+ Novo post', "openForm('post')"))}
+    ${ps.length ? `<div class="overflow-x-auto scrollbar-thin -mx-1"><table class="w-full text-xs">
+      <thead><tr class="text-gray-400 border-b border-gray-100">
+        <th class="py-2.5 px-2 text-left font-medium">Data</th><th class="py-2.5 px-2 text-left font-medium">Tipo</th>
+        <th class="py-2.5 px-2 text-left font-medium">Conteúdo</th><th class="py-2.5 px-2 text-right font-medium">Alcance</th>
+        <th class="py-2.5 px-2 text-right font-medium">Likes</th><th class="py-2.5 px-2 text-right font-medium">Coment.</th>
+        <th class="py-2.5 px-2 text-right font-medium">Salvos</th><th class="py-2.5 px-2 text-right font-medium">Eng%</th><th class="w-8"></th>
+      </tr></thead>
+      <tbody class="divide-y divide-gray-50">
+        ${ps.map((p) => `<tr class="hover:bg-gray-50/80 transition-colors">
+          <td class="py-2.5 px-2 text-gray-500">${esc(p.date||'')}</td>
+          <td class="py-2.5 px-2">${typeBadge(p.type)}</td>
+          <td class="py-2.5 px-2 max-w-[180px] truncate font-medium text-gray-700">${esc(p.caption||'—')}</td>
+          <td class="py-2.5 px-2 text-right">${fmt(p.reach)}</td>
+          <td class="py-2.5 px-2 text-right">${fmt(p.likes)}</td>
+          <td class="py-2.5 px-2 text-right">${fmt(p.comments)}</td>
+          <td class="py-2.5 px-2 text-right">${fmt(p.saves)}</td>
+          <td class="py-2.5 px-2 text-right font-bold ${p.eng>=5?'text-emerald-600':p.eng>=2?'text-blue-600':'text-gray-600'}">${p.eng.toFixed(1)}%</td>
+          <td class="py-2.5 px-2 text-right"><button onclick="delRow('ig_posts','${p.id}')" class="text-gray-300 hover:text-red-500">✕</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>` : emptyState('Nenhum post cadastrado.', `<button onclick="openForm('post')" class="btn-accent mt-3">Adicionar primeiro post</button>`)}
+  </div>`;
+}
+function drawIgCharts() {
+  const c = co();
+  const ig = State.igDaily.filter((r) => withinRange(r.date)).sort((a, b) => a.date < b.date ? -1 : 1);
+  const ps = State.posts.filter((r) => withinRange(r.date)).sort((a, b) => a.date < b.date ? -1 : 1);
+  const rEl = $('#ch-reach');
+  if (rEl) { const ctx=rEl.getContext('2d'); State.charts.reach=new Chart(rEl,{type:'line',data:{labels:ig.map((r)=>r.date.slice(5)),datasets:[{label:'Alcance',data:ig.map((r)=>+r.reach||0),borderColor:c.accent,backgroundColor:gradientFill(ctx,c.accent),fill:true,tension:.4,pointRadius:0,pointHoverRadius:5,borderWidth:2.5}]},options:baseChartOpts()}); }
+  const pEl = $('#ch-posteng');
+  if (pEl) State.charts.posteng=new Chart(pEl,{type:'bar',data:{labels:ps.map((p)=>(p.caption||p.type||'').slice(0,10)),datasets:[{label:'Eng %',data:ps.map((p)=>+Insights.postEngagement(p).toFixed(1)),backgroundColor:c.accent+'CC',borderRadius:6,borderSkipped:false}]},options:baseChartOpts()});
+}
+
+/* ══════════════════════════════════════════════
+   VIEW: META ADS
+══════════════════════════════════════════════ */
+function viewAds() {
+  const ad = State.ads.filter((r) => withinRange(r.date)).sort((a, b) => a.date < b.date ? 1 : -1);
+  const spend=ad.reduce((s,a)=>s+(+a.spend||0),0), revenue=ad.reduce((s,a)=>s+(+a.revenue||0),0),
+        conv=ad.reduce((s,a)=>s+(+a.conversions||0),0), clicks=ad.reduce((s,a)=>s+(+a.clicks||0),0),
+        impr=ad.reduce((s,a)=>s+(+a.impressions||0),0);
+  const roas=spend>0?revenue/spend:0, ctr=impr>0?(clicks/impr)*100:0, cpc=clicks>0?spend/clicks:0, cpa=conv>0?spend/conv:0;
+  const c = co();
+
+  // Agrupa por campanha
+  const byCamp = {};
+  ad.forEach((a) => {
+    const k = a.campaign || 'Sem nome';
+    if (!byCamp[k]) byCamp[k] = { campaign:k, spend:0, revenue:0, conv:0, clicks:0, impressions:0, days:0 };
+    byCamp[k].spend       += +a.spend       || 0;
+    byCamp[k].revenue     += +a.revenue     || 0;
+    byCamp[k].conv        += +a.conversions || 0;
+    byCamp[k].clicks      += +a.clicks      || 0;
+    byCamp[k].impressions += +a.impressions || 0;
+    byCamp[k].days++;
+  });
+  const camps = Object.values(byCamp).sort((a, b) => b.spend - a.spend);
+  const maxSpend = camps.length ? camps[0].spend : 1;
+
+  return `
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+    ${kpiCard({ label:'Investimento', value:money(spend), sub:'no período', color:'text-blue-600', delay:'anim-fade-up anim-d1' })}
+    ${kpiCard({ label:'Receita Ads', value:money(revenue), sub:'atribuída diretamente', color:'text-emerald-600', delay:'anim-fade-up anim-d2' })}
+    ${kpiCard({ label:'ROAS', value:roas?roas.toFixed(2)+'x':'—', sub:'retorno', color:roas>=2?'text-emerald-600':roas>0&&roas<1?'text-red-600':'', delay:'anim-fade-up anim-d3' })}
+    ${kpiCard({ label:'Conversões', value:fmt(conv), sub:cpa?'CPA '+money(cpa):'', delay:'anim-fade-up anim-d4' })}
+  </div>
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+    ${kpiCard({ label:'Impressões', value:fmt(impr), delay:'anim-fade-up anim-d1' })}
+    ${kpiCard({ label:'Cliques', value:fmt(clicks), delay:'anim-fade-up anim-d2' })}
+    ${kpiCard({ label:'CTR', value:ctr?ctr.toFixed(2)+'%':'—', color:ctr>0&&ctr<1?'text-amber-600':'', delay:'anim-fade-up anim-d3' })}
+    ${kpiCard({ label:'CPC', value:cpc?money(cpc):'—', sub:'custo por clique', delay:'anim-fade-up anim-d4' })}
+  </div>
+
+  ${camps.length ? `
+  <div class="card p-5 mb-4">
+    ${sectionTitle('Desempenho por campanha')}
+    <div class="space-y-3">
+      ${camps.map((camp) => {
+        const cr = camp.spend>0 ? camp.revenue/camp.spend : 0;
+        const cctr = camp.impressions>0 ? (camp.clicks/camp.impressions)*100 : 0;
+        const ccpa = camp.conv>0 ? camp.spend/camp.conv : 0;
+        const barW = Math.round((camp.spend/maxSpend)*100);
+        const roasColor = cr>=2?'text-emerald-600':cr>0&&cr<1?'text-red-500':'text-gray-700';
+        return `<div class="p-3.5 rounded-xl border border-gray-100 hover:border-gray-200 transition-colors">
+          <div class="flex items-start justify-between gap-3 mb-2.5">
+            <p class="text-sm font-semibold text-gray-900 leading-tight">${esc(camp.campaign)}</p>
+            <span class="text-xs font-bold ${roasColor} shrink-0">${cr?'ROAS '+cr.toFixed(2)+'x':'Sem receita'}</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-1.5 mb-3">
+            <div class="h-1.5 rounded-full transition-all" style="width:${barW}%;background:var(--accent)"></div>
+          </div>
+          <div class="grid grid-cols-4 gap-2 text-center">
+            <div><p class="text-[10px] text-gray-400 mb-0.5">Invest.</p><p class="text-xs font-bold text-blue-700">${money(camp.spend)}</p></div>
+            <div><p class="text-[10px] text-gray-400 mb-0.5">Receita</p><p class="text-xs font-bold text-emerald-700">${money(camp.revenue)}</p></div>
+            <div><p class="text-[10px] text-gray-400 mb-0.5">Conv.</p><p class="text-xs font-semibold text-gray-700">${fmt(camp.conv)}${ccpa?'<span class="text-[9px] text-gray-400 font-normal block">'+money(ccpa)+'/conv</span>':''}</p></div>
+            <div><p class="text-[10px] text-gray-400 mb-0.5">CTR</p><p class="text-xs font-semibold text-gray-700">${cctr?cctr.toFixed(2)+'%':'—'}</p></div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>` : ''}
+
+  <div class="card p-5">
+    ${sectionTitle('Histórico diário', addBtn('+ Nova entrada', "openForm('ad')"))}
+    ${ad.length ? `<div class="overflow-x-auto scrollbar-thin -mx-1"><table class="w-full text-xs">
+      <thead><tr class="text-gray-400 border-b border-gray-100">
+        <th class="py-2.5 px-2 text-left font-medium">Data</th><th class="py-2.5 px-2 text-left font-medium">Campanha</th>
+        <th class="py-2.5 px-2 text-right font-medium">Invest.</th><th class="py-2.5 px-2 text-right font-medium">Impr.</th>
+        <th class="py-2.5 px-2 text-right font-medium">Cliques</th><th class="py-2.5 px-2 text-right font-medium">Conv.</th>
+        <th class="py-2.5 px-2 text-right font-medium">Receita</th><th class="py-2.5 px-2 text-right font-medium">ROAS</th><th class="w-8"></th>
+      </tr></thead>
+      <tbody class="divide-y divide-gray-50">
+        ${ad.map((a) => { const r=(+a.spend>0)?(+a.revenue||0)/+a.spend:0; return `<tr class="hover:bg-gray-50/80 transition-colors">
+          <td class="py-2.5 px-2 text-gray-500 whitespace-nowrap">${esc(a.date||'')}</td>
+          <td class="py-2.5 px-2 font-medium text-gray-800">${esc(a.campaign||'—')}</td>
+          <td class="py-2.5 px-2 text-right text-blue-700 font-semibold">${money(a.spend)}</td>
+          <td class="py-2.5 px-2 text-right text-gray-600">${fmt(a.impressions)}</td>
+          <td class="py-2.5 px-2 text-right text-gray-600">${fmt(a.clicks)}</td>
+          <td class="py-2.5 px-2 text-right text-gray-600">${fmt(a.conversions)}</td>
+          <td class="py-2.5 px-2 text-right text-emerald-700 font-semibold">${money(a.revenue)}</td>
+          <td class="py-2.5 px-2 text-right font-bold ${r>=2?'text-emerald-600':r>0&&r<1?'text-red-600':'text-gray-700'}">${r?r.toFixed(2)+'x':'—'}</td>
+          <td class="py-2.5 px-2 text-right"><button onclick="delRow('ads','${a.id}')" class="text-gray-300 hover:text-red-500">✕</button></td>
+        </tr>`; }).join('')}
+      </tbody>
+    </table></div>` : emptyState('Nenhuma entrada cadastrada.', `<button onclick="openForm('ad')" class="btn-accent mt-3">Adicionar entrada</button>`)}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   VIEW: RECEITA MANUAL
+══════════════════════════════════════════════ */
+function viewRevenue() {
+  const rev = State.revenues.filter((r) => withinRange(r.date)).sort((a, b) => a.date < b.date ? 1 : -1);
+  const total = rev.reduce((s, r) => s + (+r.amount || 0), 0);
+  const adsTotal = State.ads.filter((r) => withinRange(r.date)).reduce((s, a) => s + (+a.revenue || 0), 0);
+  const c = co();
+
+  // Agrupar por fonte
+  const bySource = {};
+  rev.forEach((r) => { bySource[r.source||'Outros'] = (bySource[r.source||'Outros']||0) + (+r.amount||0); });
+  const sources = Object.entries(bySource).sort((a, b) => b[1] - a[1]);
+
+  setTimeout(() => {
+    const el = $('#ch-revenue-pie');
+    if (el && sources.length) {
+      State.charts.revpie = new Chart(el, {
+        type: 'doughnut',
+        data: { labels: sources.map((s) => s[0]), datasets: [{ data: sources.map((s) => s[1]), backgroundColor: [c.accent, c.accent+'AA', c.accent+'66', '#60A5FA', '#34D399', '#F59E0B'], borderWidth: 0, hoverOffset: 6 }] },
+        options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, borderRadius:3, font:{size:11,family:'Inter'}, color:'#6B7280', padding:12 } }, tooltip:{ backgroundColor:'#111827', cornerRadius:12, padding:10, callbacks:{ label: (ctx) => ' '+money(ctx.parsed) } } }, cutout:'62%' },
+      });
+    }
+  }, 0);
+
+  return `
+  <!-- KPIs -->
+  <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+    ${kpiCard({ label:'Receita Manual', value:money(total), sub:`${rev.length} lançamentos no período`, color:'text-emerald-600', delay:'anim-fade-up anim-d1' })}
+    ${kpiCard({ label:'Receita via Ads', value:money(adsTotal), sub:'atribuída às campanhas', color:'text-blue-600', delay:'anim-fade-up anim-d2' })}
+    ${kpiCard({ label:'Receita Total', value:money(total+adsTotal), sub:'manual + atribuída', color:'text-gradient', delay:'anim-fade-up anim-d3' })}
+  </div>
+
+  <div class="grid lg:grid-cols-3 gap-4 mb-5">
+    <!-- Lista de lançamentos -->
+    <div class="card p-5 lg:col-span-2">
+      ${sectionTitle('Lançamentos de receita', addBtn('+ Registrar receita', "openForm('revenue')"))}
+      ${rev.length ? `<div class="overflow-x-auto scrollbar-thin -mx-1"><table class="w-full text-xs">
+        <thead><tr class="text-gray-400 border-b border-gray-100">
+          <th class="py-2.5 px-2 text-left font-medium">Data</th>
+          <th class="py-2.5 px-2 text-left font-medium">Fonte</th>
+          <th class="py-2.5 px-2 text-left font-medium">Descrição</th>
+          <th class="py-2.5 px-2 text-right font-medium">Valor</th>
+          <th class="w-8"></th>
+        </tr></thead>
+        <tbody class="divide-y divide-gray-50">
+          ${rev.map((r) => `<tr class="hover:bg-gray-50/80 transition-colors">
+            <td class="py-2.5 px-2 text-gray-500 whitespace-nowrap">${esc(r.date||'')}</td>
+            <td class="py-2.5 px-2"><span class="tag bg-emerald-50 text-emerald-700">${esc(r.source||'Outros')}</span></td>
+            <td class="py-2.5 px-2 text-gray-600 max-w-[200px] truncate">${esc(r.description||'—')}</td>
+            <td class="py-2.5 px-2 text-right font-bold text-emerald-700">${money(r.amount)}</td>
+            <td class="py-2.5 px-2 text-right"><button onclick="delRow('revenues','${r.id}')" class="text-gray-300 hover:text-red-500">✕</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>` : emptyState('Nenhuma receita lançada neste período.', `<button onclick="openForm('revenue')" class="btn-accent mt-3">Registrar primeira receita</button>`)}
+    </div>
+
+    <!-- Gráfico por fonte -->
+    <div class="card p-5">
+      ${sectionTitle('Por fonte')}
+      ${sources.length ? `
+      <div style="height:180px" class="mb-4"><canvas id="ch-revenue-pie"></canvas></div>
+      <div class="space-y-2">
+        ${sources.map(([src, val]) => `
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-gray-600 font-medium truncate">${esc(src)}</span>
+          <span class="font-bold text-gray-900 ml-2">${money(val)}</span>
+        </div>`).join('')}
+      </div>` : emptyState('Adicione receitas para ver a distribuição.')}
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   VIEW: METAS
+══════════════════════════════════════════════ */
+function viewGoals() {
+  return `<div class="card p-5">
+    ${sectionTitle('Metas', addBtn('+ Nova meta', "openForm('goal')"))}
+    ${State.goals.length
+      ? `<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">${State.goals.map(goalCard).join('')}</div>`
+      : emptyState('Defina metas para acompanhar o progresso.', `<button onclick="openForm('goal')" class="btn-accent mt-3">Criar primeira meta</button>`)}
+  </div>`;
+}
+function goalCard(g) {
+  const c = co();
+  const cur = +g.current||0, target = +g.target||0;
+  const ratio = target>0 ? clamp(cur/target, 0, 1) : 0;
+  const pct = Math.round(ratio * 100);
+  const barColor = ratio>=1 ? '#10B981' : ratio>=.5 ? c.accent : '#F59E0B';
+  return `<div class="border border-gray-100 rounded-2xl p-4 hover:shadow-md transition-shadow">
+    <div class="flex items-start justify-between mb-3">
+      <div><p class="font-bold text-sm text-gray-900">${esc(g.name)}</p><p class="text-xs text-gray-400 mt-0.5">${esc(g.period||'meta')}</p></div>
+      <button onclick="delRow('goals','${g.id}')" class="text-gray-200 hover:text-red-500 text-sm">✕</button>
+    </div>
+    <div class="flex items-baseline justify-between mb-2">
+      <span class="text-3xl font-black" style="color:${barColor}">${fmt(cur)}</span>
+      <span class="text-xs text-gray-400 font-medium">de ${fmt(target)}</span>
+    </div>
+    <div class="h-2 bg-gray-100 rounded-full overflow-hidden mb-2">
+      <div class="h-full rounded-full prog-bar" style="width:${pct}%;background:linear-gradient(90deg,${barColor},${barColor}CC)"></div>
+    </div>
+    <div class="flex items-center justify-between">
+      <span class="text-xs font-bold" style="color:${barColor}">${pct}%</span>
+      <button onclick="openForm('goal','${g.id}')" class="text-xs font-semibold" style="color:var(--accent)">Atualizar →</button>
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   VIEW: SUGESTÕES
+══════════════════════════════════════════════ */
+function viewIdeas() {
+  const ideas = Insights.generate({ igDaily: State.igDaily, posts: State.posts, ads: State.ads, goals: State.goals });
+  const notes = State.notes.sort((a, b) => a.created_at < b.created_at ? 1 : -1);
+  return `<div class="grid lg:grid-cols-2 gap-4">
+    <div class="card p-5">
+      ${sectionTitle('Sugestões automáticas')}
+      <div class="space-y-2">${ideas.length ? ideas.map(insightCard).join('') : emptyState('Adicione dados para ver sugestões.')}</div>
+    </div>
+    <div class="card p-5">
+      ${sectionTitle('Anotações & insights', addBtn('+ Anotar', "openForm('note')"))}
+      ${notes.length ? `<div class="space-y-2">${notes.map((n) => `
+        <div class="border border-gray-100 rounded-2xl p-3.5 flex gap-3 hover:border-gray-200 transition-colors">
+          <span class="text-xl leading-none mt-0.5">${esc(n.icon||'📝')}</span>
+          <div class="flex-1 min-w-0">
+            <p class="font-bold text-sm text-gray-900">${esc(n.title)}</p>
+            <p class="text-xs text-gray-500 mt-0.5 leading-relaxed whitespace-pre-wrap">${esc(n.body||'')}</p>
+          </div>
+          <button onclick="delRow('notes','${n.id}')" class="text-gray-200 hover:text-red-500 text-sm self-start">✕</button>
+        </div>`).join('')}</div>`
+        : emptyState('Guarde ideias de conteúdo, briefings, aprendizados...')}
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   VIEW: DADOS
+══════════════════════════════════════════════ */
+function viewData() {
+  const ig = State.igDaily.sort((a, b) => a.date < b.date ? 1 : -1).slice(0, 14);
+  const quickCards = [
+    { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>', label:'Métrica diária IG', desc:'Seguidores, alcance, visitas', form:'daily', color:'text-blue-600 bg-blue-50' },
+    { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".5" fill="currentColor"/></svg>', label:'Post / Reel', desc:'Likes, comentários, salvos', form:'post', color:'text-pink-600 bg-pink-50' },
+    { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>', label:'Campanha de Ads', desc:'Investimento, conversões', form:'ad', color:'text-sky-600 bg-sky-50' },
+    { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 1 0 0 7h5a3.5 3.5 0 1 1 0 7H6"/></svg>', label:'Receita Manual', desc:'Vendas, consultoria, outros', form:'revenue', color:'text-emerald-600 bg-emerald-50' },
+    { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>', label:'Meta', desc:'Objetivo + progresso', form:'goal', color:'text-violet-600 bg-violet-50' },
+    { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>', label:'Anotação', desc:'Ideias, briefings, insights', form:'note', color:'text-amber-600 bg-amber-50' },
+  ];
+  return `
+  <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+    ${quickCards.map((q) => `<button onclick="openForm('${q.form}')" class="card p-4 text-left hover:shadow-lg transition-all duration-200 group">
+      <div class="w-10 h-10 rounded-xl ${q.color} flex items-center justify-center mb-3 transition-transform group-hover:scale-105">${q.icon}</div>
+      <p class="font-bold text-sm text-gray-900">${q.label}</p>
+      <p class="text-xs text-gray-400 mt-0.5">${q.desc}</p>
+    </button>`).join('')}
+  </div>
+  <div class="card p-5">
+    ${sectionTitle('Histórico · Métricas diárias Instagram')}
+    ${ig.length ? `<div class="overflow-x-auto scrollbar-thin -mx-1"><table class="w-full text-xs">
+      <thead><tr class="text-gray-400 border-b border-gray-100">
+        <th class="py-2.5 px-2 text-left font-medium">Data</th><th class="py-2.5 px-2 text-right font-medium">Seguidores</th>
+        <th class="py-2.5 px-2 text-right font-medium">Alcance</th><th class="py-2.5 px-2 text-right font-medium">Impressões</th>
+        <th class="py-2.5 px-2 text-right font-medium">Visitas perfil</th><th class="py-2.5 px-2 text-right font-medium">Cliques site</th><th class="w-8"></th>
+      </tr></thead>
+      <tbody class="divide-y divide-gray-50">
+        ${ig.map((r) => `<tr class="hover:bg-gray-50/80 transition-colors">
+          <td class="py-2.5 px-2 text-gray-500">${esc(r.date)}</td>
+          <td class="py-2.5 px-2 text-right font-bold text-gray-900">${fmt(r.followers)}</td>
+          <td class="py-2.5 px-2 text-right text-gray-600">${fmt(r.reach)}</td>
+          <td class="py-2.5 px-2 text-right text-gray-600">${fmt(r.impressions)}</td>
+          <td class="py-2.5 px-2 text-right text-gray-600">${fmt(r.profile_views)}</td>
+          <td class="py-2.5 px-2 text-right text-gray-600">${fmt(r.website_clicks)}</td>
+          <td class="py-2.5 px-2 text-right"><button onclick="delRow('ig_daily','${r.id}')" class="text-gray-300 hover:text-red-500">✕</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>` : emptyState('Comece registrando a métrica de hoje.', `<button onclick="openForm('daily')" class="btn-accent mt-3">Registrar métrica diária</button>`)}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   VIEW: CONFIGURAÇÕES
+══════════════════════════════════════════════ */
+function viewSettings() {
+  const cfg = DB.getCompanyConfig(), globalCfg = DB.getConfig(), c = co(), mode = DB.mode();
+  const lastSync = cfg.lastSync ? new Date(cfg.lastSync).toLocaleString('pt-BR') : 'Nunca';
+  return `
+  <div class="grid lg:grid-cols-2 gap-4">
+    <!-- Supabase -->
+    <div class="card p-5">
+      <div class="flex items-center gap-3 p-3 rounded-xl mb-5" style="background:${c.light}">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-sm" style="background:${c.gradient}">${c.initial}</div>
+        <div>
+          <p class="font-bold text-sm text-gray-900">${c.name}</p>
+          <button onclick="showSelector()" class="text-xs font-medium" style="color:${c.accent}">⇄ Trocar empresa</button>
+        </div>
+      </div>
+      ${sectionTitle('Armazenamento · Supabase')}
+      <p class="text-xs text-gray-500 mb-4 leading-relaxed">Por padrão os dados ficam neste navegador. Para sincronizar na nuvem, cole as credenciais do Supabase.</p>
+      <label class="block text-xs font-semibold text-gray-600 mb-1">Supabase URL</label>
+      <input id="cfg-url" class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 bg-gray-50" placeholder="https://xxxx.supabase.co" value="${esc(globalCfg.supabaseUrl||'')}" />
+      <label class="block text-xs font-semibold text-gray-600 mb-1">Supabase Publishable Key</label>
+      <input id="cfg-key" class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-5 bg-gray-50" placeholder="sb_publishable_..." value="${esc(globalCfg.supabaseKey||'')}" />
+      <div class="flex gap-2">
+        <button onclick="saveConfig()" class="btn-accent flex-1 py-2.5 text-center">Salvar conexão</button>
+        <button onclick="clearConfig()" class="text-sm px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50">Voltar local</button>
+      </div>
+      <div class="mt-3 flex items-center gap-2 text-xs ${mode==='supabase'?'text-emerald-600':'text-amber-600'}">
+        <span class="w-2 h-2 rounded-full dot-live ${mode==='supabase'?'bg-emerald-500':'bg-amber-500'}"></span>
+        ${mode==='supabase'?'Conectado ao Supabase':'Usando armazenamento local'}
+      </div>
+    </div>
+
+    <!-- Meta API -->
+    <div class="space-y-4">
+      <div class="card p-5">
+        ${sectionTitle(`Integração automática · Meta API <span class="text-[10px] font-normal px-2 py-0.5 rounded-full ml-1" style="background:${c.light};color:${c.accent}">${c.name}</span>`)}
+        <p class="text-xs text-gray-500 mb-4 leading-relaxed">Credenciais exclusivas para <strong>${c.name}</strong>. Cada empresa tem sua própria conta Meta — configure aqui e o dashboard sincroniza a cada 6 horas.</p>
+
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Access Token da Meta</label>
+        <input id="cfg-meta-token" class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 bg-gray-50 font-mono" placeholder="EAAxxxxxxxxx..." value="${esc(cfg.metaToken||'')}" />
+
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Instagram Account ID</label>
+        <input id="cfg-ig-id" class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 bg-gray-50 font-mono" placeholder="17841400000000000" value="${esc(cfg.igAccountId||'')}" />
+
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Ad Account ID</label>
+        <input id="cfg-ad-account" class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-1 bg-gray-50 font-mono" placeholder="123456789" value="${esc(cfg.metaAdAccount||'')}" />
+        <p class="text-[10px] text-gray-400 mb-4">Sem o "act_" — somente os números</p>
+
+        <div class="flex gap-2">
+          <button onclick="saveMetaConfig()" class="btn-accent flex-1 py-2.5 text-center">Salvar credenciais</button>
+          <button id="sync-meta-btn" onclick="syncMeta()" class="text-sm px-4 py-2.5 rounded-xl border font-semibold transition-all hover:opacity-80" style="border-color:${c.accent};color:${c.accent}">
+            ⟳ Sincronizar agora
+          </button>
+        </div>
+        <p class="text-[10px] text-gray-400 mt-2">Última sincronização: ${lastSync}</p>
+      </div>
+
+      <!-- Backup -->
+      <div class="card p-5">
+        ${sectionTitle('Backup de dados · ' + c.name)}
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="exportData()" class="text-xs py-2.5 px-3 rounded-xl border border-gray-200 hover:bg-gray-50 font-medium">↓ Exportar JSON</button>
+          <label class="text-xs py-2.5 px-3 rounded-xl border border-gray-200 hover:bg-gray-50 font-medium cursor-pointer text-center">↑ Importar JSON<input type="file" accept="application/json" class="hidden" onchange="importData(event)" /></label>
+          <button onclick="loadSample()" class="text-xs py-2.5 px-3 rounded-xl border border-gray-200 hover:bg-gray-50 font-medium">Carregar exemplo</button>
+          <button onclick="wipeData()" class="text-xs py-2.5 px-3 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 font-medium">Apagar tudo</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   FORMULÁRIOS
+══════════════════════════════════════════════ */
+const FORMS = {
+  daily:   { title:'Métrica diária · Instagram', col:'ig_daily', fields:[
+    { k:'date', label:'Data', type:'date', def:today, required:true },
+    { k:'followers', label:'Seguidores (total)', type:'number' },
+    { k:'reach', label:'Alcance', type:'number' },
+    { k:'impressions', label:'Impressões', type:'number' },
+    { k:'profile_views', label:'Visitas ao perfil', type:'number' },
+    { k:'website_clicks', label:'Cliques no site', type:'number' },
+  ]},
+  post:    { title:'Post / Reel', col:'ig_posts', fields:[
+    { k:'date', label:'Data', type:'date', def:today, required:true },
+    { k:'type', label:'Tipo', type:'select', options:['Reel','Carrossel','Foto','Story'] },
+    { k:'caption', label:'Tema / legenda', type:'text' },
+    { k:'reach', label:'Alcance', type:'number' },
+    { k:'likes', label:'Curtidas', type:'number' },
+    { k:'comments', label:'Comentários', type:'number' },
+    { k:'saves', label:'Salvamentos', type:'number' },
+    { k:'shares', label:'Compartilhamentos', type:'number' },
+  ]},
+  ad:      { title:'Campanha Meta Ads', col:'ads', fields:[
+    { k:'date', label:'Data', type:'date', def:today, required:true },
+    { k:'campaign', label:'Nome da campanha', type:'text' },
+    { k:'spend', label:'Investimento (R$)', type:'number', step:'0.01' },
+    { k:'impressions', label:'Impressões', type:'number' },
+    { k:'clicks', label:'Cliques', type:'number' },
+    { k:'conversions', label:'Conversões', type:'number' },
+    { k:'revenue', label:'Receita atribuída (R$)', type:'number', step:'0.01' },
+  ]},
+  revenue: { title:'Receita Manual', col:'revenues', fields:[
+    { k:'date', label:'Data', type:'date', def:today, required:true },
+    { k:'source', label:'Fonte', type:'text', required:true, placeholder:'Ex.: Venda consultoria, Produto digital...' },
+    { k:'amount', label:'Valor (R$)', type:'number', step:'0.01', required:true },
+    { k:'description', label:'Descrição (opcional)', type:'textarea' },
+  ]},
+  goal:    { title:'Meta', col:'goals', fields:[
+    { k:'name', label:'Nome da meta', type:'text', required:true, placeholder:'Ex.: Seguidores em junho' },
+    { k:'period', label:'Período', type:'text', placeholder:'Ex.: Junho/2026' },
+    { k:'target', label:'Objetivo (número)', type:'number', required:true },
+    { k:'current', label:'Progresso atual', type:'number' },
+  ]},
+  note:    { title:'Anotação', col:'notes', fields:[
+    { k:'icon', label:'Ícone', type:'select', options:['📝','💡','📌','🔑','🎯','⭐','📣','🔥'] },
+    { k:'title', label:'Título', type:'text', required:true },
+    { k:'body', label:'Detalhe', type:'textarea' },
+  ]},
+};
+
+function openForm(type, id) {
+  const def = FORMS[type]; if (!def) return;
+  const existing = id ? (State[colToState(def.col)]||[]).find((r) => r.id === id) : null;
+  const c = co();
+  $('#modal-root').innerHTML = `
+  <div class="modal-backdrop fixed inset-0 bg-black/50 backdrop-blur-sm z-40 flex items-end sm:items-center justify-center p-0 sm:p-6" onclick="if(event.target===this)closeForm()">
+    <div class="modal-sheet bg-white w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl max-h-[92vh] overflow-y-auto scrollbar-thin shadow-2xl">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm rounded-t-3xl">
+        <h3 class="font-bold text-sm">${existing?'Editar':'Novo'} · ${def.title}</h3>
+        <button onclick="closeForm()" class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 text-xs transition-colors">✕</button>
+      </div>
+      <form id="entry-form" class="px-5 py-4 space-y-3">
+        ${def.fields.map((f) => fieldHtml(f, existing)).join('')}
+        <div class="flex gap-2 pt-2">
+          <button type="submit" class="btn-accent flex-1 py-3">Salvar</button>
+          <button type="button" onclick="closeForm()" class="text-sm px-4 py-3 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+  $('#entry-form').onsubmit = (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target), row = {};
+    def.fields.forEach((f) => { let v = fd.get(f.k); if (f.type==='number') v=v===''?null:+v; row[f.k]=v; });
+    submitForm(def.col, id, row);
+  };
+}
+
+function fieldHtml(f, existing) {
+  const val = existing ? (existing[f.k]??'') : (typeof f.def==='function' ? f.def() : (f.def??''));
+  const base = 'w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 transition-all';
+  let input;
+  if (f.type==='select') input = `<select name="${f.k}" class="${base} cursor-pointer">${f.options.map((o)=>`<option ${String(val)===o?'selected':''}>${o}</option>`).join('')}</select>`;
+  else if (f.type==='textarea') input = `<textarea name="${f.k}" rows="3" class="${base}" placeholder="${f.placeholder||''}">${esc(val)}</textarea>`;
+  else input = `<input name="${f.k}" type="${f.type}" ${f.step?`step="${f.step}"`:''}  ${f.required?'required':''} class="${base}" placeholder="${f.placeholder||''}" value="${esc(val)}" />`;
+  return `<div><label class="block text-xs font-semibold text-gray-600 mb-1.5">${f.label}${f.required?' <span class="text-red-400">*</span>':''}</label>${input}</div>`;
+}
+
+function colToState(col) {
+  return { ig_daily:'igDaily', ig_posts:'posts', ads:'ads', goals:'goals', notes:'notes', revenues:'revenues' }[col];
+}
+async function submitForm(col, id, row) {
+  try {
+    if (id) await DB.update(col, id, row); else await DB.insert(col, row);
+    closeForm(); await loadAll(); renderView(); toast(id?'Atualizado!':'Adicionado!');
+  } catch(e) { toast('Erro ao salvar: '+e.message, 'err'); }
+}
+function closeForm() { $('#modal-root').innerHTML = ''; }
+async function delRow(col, id) {
+  if (!confirm('Remover este registro?')) return;
+  try { await DB.remove(col, id); await loadAll(); renderView(); toast('Removido.'); }
+  catch(e) { toast('Erro: '+e.message, 'err'); }
+}
+
+/* ── Config ── */
+function saveConfig() {
+  const url = $('#cfg-url').value.trim(), key = $('#cfg-key').value.trim();
+  if (url && !/^https:\/\/.+\.supabase\.co/.test(url)) { toast('URL do Supabase parece inválida.','warn'); return; }
+  DB.setConfig({ ...DB.getConfig(), supabaseUrl:url, supabaseKey:key });
+  toast('Conexão salva. Recarregando...'); setTimeout(()=>location.reload(), 800);
+}
+function clearConfig() { DB.setConfig({}); toast('Voltando ao modo local...'); setTimeout(()=>location.reload(),600); }
+function saveMetaConfig() {
+  const token = $('#cfg-meta-token').value.trim();
+  const igId  = $('#cfg-ig-id').value.trim();
+  const adAcc = $('#cfg-ad-account').value.trim();
+  DB.setCompanyConfig({ metaToken: token, igAccountId: igId, metaAdAccount: adAcc });
+  toast('Credenciais Meta salvas para ' + co().name + '!');
+  if (token && igId) { setTimeout(syncMeta, 500); }
+}
+
+/* ── Backup ── */
+function exportData() {
+  const c = co();
+  const blob = new Blob([JSON.stringify(DB.exportAll(),null,2)],{type:'application/json'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`dashboard-${c.id}-${today()}.json`; a.click();
+}
+function importData(e) {
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=async()=>{ try{ DB.importAll(JSON.parse(reader.result)); await loadAll(); render(); toast('Backup importado!'); } catch{ toast('Arquivo inválido.','err'); } };
+  reader.readAsText(file);
+}
+async function wipeData() {
+  const c=co(); if(!confirm(`Apagar TODOS os dados de "${c.name}"?`)) return;
+  DB.clearAll(); await loadAll(); render(); toast('Dados apagados.');
+}
+
+/* ── Dados de exemplo ── */
+async function loadSample() {
+  if (State.igDaily.length && !confirm('Adicionar dados de exemplo?')) return;
+  const c=co(), base=12000;
+  for (let i=29;i>=0;i--) {
+    const d=new Date(); d.setDate(d.getDate()-i);
+    await DB.insert('ig_daily',{ date:d.toISOString().slice(0,10), followers:base+(29-i)*35+Math.round(Math.random()*20), reach:3000+Math.round(Math.random()*4000), impressions:5000+Math.round(Math.random()*6000), profile_views:200+Math.round(Math.random()*300), website_clicks:20+Math.round(Math.random()*60) });
+  }
+  for (let i=0;i<c.sample.posts.length;i++) {
+    const d=new Date(); d.setDate(d.getDate()-i*4);
+    await DB.insert('ig_posts',{ date:d.toISOString().slice(0,10), type:c.sample.posts[i][0], caption:c.sample.posts[i][1], reach:4000+Math.round(Math.random()*8000), likes:300+Math.round(Math.random()*900), comments:20+Math.round(Math.random()*120), saves:50+Math.round(Math.random()*400), shares:30+Math.round(Math.random()*200) });
+  }
+  for (let i=13;i>=0;i-=2) {
+    const d=new Date(); d.setDate(d.getDate()-i);
+    const spend=50+Math.round(Math.random()*150);
+    await DB.insert('ads',{ date:d.toISOString().slice(0,10), campaign:c.sample.camps[i%3], spend, impressions:spend*(80+Math.round(Math.random()*60)), clicks:Math.round(spend*(1.5+Math.random()*2)), conversions:Math.round(Math.random()*6), revenue:Math.round(spend*(0.8+Math.random()*2.5)) });
+  }
+  // Receitas manuais de exemplo
+  const revSources = ['Consultoria','Produto digital','Workshop','Mentoria'];
+  for (let i=0;i<5;i++) {
+    const d=new Date(); d.setDate(d.getDate()-i*5);
+    await DB.insert('revenues',{ date:d.toISOString().slice(0,10), source:revSources[i%revSources.length], amount:300+Math.round(Math.random()*2000), description:`Lançamento de exemplo para ${c.name}` });
+  }
+  await DB.insert('goals',{name:'Seguidores no mês',period:'Junho/2026',target:14000,current:base+1000});
+  await DB.insert('goals',{name:'ROAS médio',period:'Junho/2026',target:3,current:2});
+  await DB.insert('notes',{icon:'💡',title:'Ideia de série',body:`Conteúdo educativo semanal para ${c.name}.`});
+  await loadAll(); render(); toast('Dados de exemplo carregados!');
+}
+
+/* ── Empresa ── */
+async function selectCompany(id) {
+  DB.setCompany(id); State.company=id; State.tab='overview';
+  applyTheme(co()); await loadAll(); render();
+  autoSyncIfNeeded();
+}
+function showSelector() { State.company=null; DB.clearCompany(); render(); }
+
+/* ── Boot ── */
+(async function init() {
+  const companyId = DB.getCompany();
+  if (companyId) {
+    State.company = companyId;
+    applyTheme(co());
+    await loadAll();
+  }
+  render();
+  if (State.company) autoSyncIfNeeded();
+})();
+
+function applyCustomRange() {
+  const f = $('#date-from'), t = $('#date-to');
+  if (!f || !t || !f.value || !t.value) return;
+  State.dateFrom = f.value; State.dateTo = t.value; State.range = -1;
+  renderView();
+}
+function clearCustomRange() {
+  State.dateFrom = null; State.dateTo = null; State.range = 30; render();
+}
+
+window.openForm=openForm; window.closeForm=closeForm; window.delRow=delRow;
+window.saveConfig=saveConfig; window.clearConfig=clearConfig; window.saveMetaConfig=saveMetaConfig;
+window.exportData=exportData; window.importData=importData; window.wipeData=wipeData;
+window.loadSample=loadSample; window.selectCompany=selectCompany; window.showSelector=showSelector;
+window.syncMeta=syncMeta; window.applyCustomRange=applyCustomRange; window.clearCustomRange=clearCustomRange;

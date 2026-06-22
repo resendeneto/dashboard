@@ -1,0 +1,7 @@
+meta-mcp/.env
+meta-mcp/__pycache__/
+meta-mcp/*.pyc
+*.log
+.DS_Store
+Thumbs.db
+meta-backup-*.json
