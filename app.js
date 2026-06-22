@@ -901,7 +901,7 @@ function goalSuggestion(kpiKey, cur, target) {
 ══════════════════════════════════════════════ */
 function viewGoals() {
   const hasKpi = State.goals.some((g) => g.kpiKey);
-  const achieved = State.goals.filter((g) => { const t=+g.target||0; const c=g.kpiKey?getKpiValue(g.kpiKey):(+g.current||0); return t>0&&c>=t; });
+  const achieved = State.goals.filter((g) => { const t=+g.target||0; const c=g.kpiKey?getKpiValue(g.kpiKey):(+g.current_val||0); return t>0&&c>=t; });
   return `
   ${achieved.length ? `<div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-5 py-4 mb-4 flex items-center gap-3">
     <span class="text-2xl">🎉</span>
@@ -920,7 +920,7 @@ function goalCard(g) {
   const c = co();
   const hasKpi = !!g.kpiKey;
   const kpiDef = hasKpi ? KPI_MAP[g.kpiKey] : null;
-  const cur = hasKpi ? getKpiValue(g.kpiKey) : (+g.current || 0);
+  const cur = hasKpi ? getKpiValue(g.kpiKey) : (+g.current_val || 0);
   const target = +g.target || 0;
   const ratio = target > 0 ? clamp(cur / target, 0, 1) : 0;
   const pct = Math.round(ratio * 100);
@@ -1076,19 +1076,16 @@ function viewSettings() {
         </div>
       </div>
       ${sectionTitle('Armazenamento · Supabase')}
-      <p class="text-xs text-gray-500 mb-4 leading-relaxed">Por padrão os dados ficam neste navegador. Para sincronizar na nuvem, cole as credenciais do Supabase.</p>
-      <label class="block text-xs font-semibold text-gray-600 mb-1">Supabase URL</label>
+      <div class="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5 mb-4">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 dot-live shrink-0"></span>
+        <p class="text-xs text-emerald-700 font-medium">Banco de dados na nuvem ativo — dados sincronizados em qualquer PC ou dispositivo.</p>
+      </div>
+      <p class="text-xs text-gray-400 mb-3">Opcional: use credenciais próprias do Supabase para ter seu próprio banco isolado.</p>
+      <label class="block text-xs font-semibold text-gray-600 mb-1">Supabase URL (opcional)</label>
       <input id="cfg-url" class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 bg-gray-50" placeholder="https://xxxx.supabase.co" value="${esc(globalCfg.supabaseUrl||'')}" />
-      <label class="block text-xs font-semibold text-gray-600 mb-1">Supabase Publishable Key</label>
-      <input id="cfg-key" class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-5 bg-gray-50" placeholder="sb_publishable_..." value="${esc(globalCfg.supabaseKey||'')}" />
-      <div class="flex gap-2">
-        <button onclick="saveConfig()" class="btn-accent flex-1 py-2.5 text-center">Salvar conexão</button>
-        <button onclick="clearConfig()" class="text-sm px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50">Voltar local</button>
-      </div>
-      <div class="mt-3 flex items-center gap-2 text-xs ${mode==='supabase'?'text-emerald-600':'text-amber-600'}">
-        <span class="w-2 h-2 rounded-full dot-live ${mode==='supabase'?'bg-emerald-500':'bg-amber-500'}"></span>
-        ${mode==='supabase'?'Conectado ao Supabase':'Usando armazenamento local'}
-      </div>
+      <label class="block text-xs font-semibold text-gray-600 mb-1">Supabase Key (opcional)</label>
+      <input id="cfg-key" class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-4 bg-gray-50" placeholder="eyJ..." value="${esc(globalCfg.supabaseKey||'')}" />
+      <button onclick="saveConfig()" class="btn-accent w-full py-2.5 text-center">Salvar conexão personalizada</button>
     </div>
 
     <!-- Meta API -->
@@ -1313,11 +1310,12 @@ function applyComparative() {
 }
 window.applyComparative = applyComparative;
 
-function clearCollection(col) {
+async function clearCollection(col) {
   const label = { ig_daily:'métricas diárias do Instagram', ig_posts:'posts', ads:'dados de Ads', goals:'metas', notes:'anotações', revenues:'receitas' }[col] || col;
-  if (!confirm(`Apagar todos os ${label}? Esta ação não pode ser desfeita.`)) return;
-  DB.clearCollection(col);
-  loadAll().then(renderView);
+  if (!confirm(`Apagar todos os ${label}? Esta ação remove da nuvem também.`)) return;
+  toast('Apagando…');
+  await DB.clearCollection(col);
+  await loadAll(); renderView();
   toast(`${label.charAt(0).toUpperCase() + label.slice(1)} apagados.`);
 }
 window.clearCollection = clearCollection;
@@ -1379,7 +1377,7 @@ const FORMS = {
       { value:'roas',        label:'ROAS' },
     ]},
     { k:'target', label:'Objetivo (número)', type:'number', required:true },
-    { k:'current', label:'Progresso atual (só se manual)', type:'number' },
+    { k:'current_val', label:'Progresso atual (só se manual)', type:'number' },
   ]},
   note:    { title:'Anotação', col:'notes', fields:[
     { k:'icon', label:'Ícone', type:'select', options:['📝','💡','📌','🔑','🎯','⭐','📣','🔥'] },
@@ -1467,20 +1465,29 @@ function saveMetaConfig() {
 }
 
 /* ── Backup ── */
-function exportData() {
+async function exportData() {
   const c = co();
-  const blob = new Blob([JSON.stringify(DB.exportAll(),null,2)],{type:'application/json'});
-  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`dashboard-${c.id}-${today()}.json`; a.click();
+  toast('Exportando…');
+  const data = await DB.exportAll();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `dashboard-${c.id}-${today()}.json`; a.click();
 }
 function importData(e) {
-  const file=e.target.files[0]; if(!file) return;
-  const reader=new FileReader();
-  reader.onload=async()=>{ try{ DB.importAll(JSON.parse(reader.result)); await loadAll(); render(); toast('Backup importado!'); } catch{ toast('Arquivo inválido.','err'); } };
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      toast('Importando para a nuvem…');
+      await DB.importAll(JSON.parse(reader.result));
+      await loadAll(); render(); toast('Backup importado!');
+    } catch (err) { toast('Arquivo inválido: ' + err.message, 'err'); }
+  };
   reader.readAsText(file);
 }
 async function wipeData() {
-  const c=co(); if(!confirm(`Apagar TODOS os dados de "${c.name}"?`)) return;
-  DB.clearAll(); await loadAll(); render(); toast('Dados apagados.');
+  const c = co(); if (!confirm(`Apagar TODOS os dados de "${c.name}"? Esta ação remove da nuvem também.`)) return;
+  toast('Apagando dados…');
+  await DB.clearAll(); await loadAll(); render(); toast('Dados apagados.');
 }
 
 /* ── Dados de exemplo ── */
