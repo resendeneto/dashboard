@@ -290,7 +290,7 @@ async function syncMeta(manual = true) {
     catch (e) { errors.push('Ads: ' + e.message); }
   }
 
-  DB.setCompanyConfig({ lastSync: new Date().toISOString() });
+  await DB.setCompanyConfig({ lastSync: new Date().toISOString() });
   await loadAll();
   render();
 
@@ -1455,12 +1455,12 @@ function saveConfig() {
   toast('Conexão salva. Recarregando...'); setTimeout(()=>location.reload(), 800);
 }
 function clearConfig() { DB.setConfig({}); toast('Voltando ao modo local...'); setTimeout(()=>location.reload(),600); }
-function saveMetaConfig() {
+async function saveMetaConfig() {
   const token = $('#cfg-meta-token').value.trim();
   const igId  = $('#cfg-ig-id').value.trim();
   const adAcc = $('#cfg-ad-account').value.trim();
-  DB.setCompanyConfig({ metaToken: token, igAccountId: igId, metaAdAccount: adAcc });
-  toast('Credenciais Meta salvas para ' + co().name + '!');
+  await DB.setCompanyConfig({ metaToken: token, igAccountId: igId, metaAdAccount: adAcc });
+  toast('Credenciais Meta salvas na nuvem para ' + co().name + '!');
   if (token && igId) { setTimeout(syncMeta, 500); }
 }
 
@@ -1522,7 +1522,9 @@ async function loadSample() {
 /* ── Empresa ── */
 async function selectCompany(id) {
   DB.setCompany(id); State.company=id; State.tab='overview';
-  applyTheme(co()); await loadAll(); render();
+  applyTheme(co());
+  await DB.loadCompanyConfig();
+  await loadAll(); render();
   autoSyncIfNeeded();
 }
 function showSelector() { State.company=null; DB.clearCompany(); render(); }
@@ -1533,6 +1535,7 @@ function showSelector() { State.company=null; DB.clearCompany(); render(); }
   if (companyId) {
     State.company = companyId;
     applyTheme(co());
+    await DB.loadCompanyConfig();
     await loadAll();
   }
   render();

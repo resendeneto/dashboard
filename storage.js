@@ -6,6 +6,7 @@
    ============================================================ */
 (function () {
   let _company = localStorage.getItem('dsr.activeCompany') || null;
+  let _companyCfg = {};          // cache em memória — carregado do Supabase no startup
   const CFG_KEY = 'dsr.config';
 
   // Credenciais padrão do projeto Supabase (anon key — seguro no client)
@@ -125,17 +126,61 @@
     getConfig,
     setConfig,
     getCompanyConfig() {
-      if (!_company) return {};
-      try { return JSON.parse(localStorage.getItem('dsr.' + _company + '.meta') || '{}'); }
-      catch { return {}; }
+      return _companyCfg;
     },
-    setCompanyConfig(patch) {
+    async setCompanyConfig(patch) {
       if (!_company) return;
-      const cur = this.getCompanyConfig();
-      localStorage.setItem('dsr.' + _company + '.meta', JSON.stringify({ ...cur, ...patch }));
+      _companyCfg = { ..._companyCfg, ...patch };
+      // Salva localStorage como cache local
+      localStorage.setItem('dsr.' + _company + '.meta', JSON.stringify(_companyCfg));
+      // Persiste na nuvem
+      try {
+        const SBU = activeUrl(), SBK = activeKey();
+        const base = SBU.replace(/\/$/, '') + '/rest/v1';
+        const h = { apikey: SBK, Authorization: 'Bearer ' + SBK, 'Content-Type': 'application/json', Prefer: 'return=minimal,resolution=merge-duplicates' };
+        await fetch(`${base}/social_config`, {
+          method: 'POST',
+          headers: h,
+          body: JSON.stringify({
+            company_id:     _company,
+            meta_token:     _companyCfg.metaToken     || null,
+            ig_account_id:  _companyCfg.igAccountId   || null,
+            ad_account_id:  _companyCfg.metaAdAccount || null,
+            last_sync:      _companyCfg.lastSync       || null,
+            updated_at:     new Date().toISOString(),
+          }),
+        });
+      } catch (e) { /* falha silenciosa — cache local mantém o dado */ }
+    },
+    // Carrega credenciais do Supabase para o cache em memória (chama no startup e ao trocar empresa)
+    async loadCompanyConfig() {
+      if (!_company) { _companyCfg = {}; return; }
+      // Lê localStorage como fallback rápido
+      try { _companyCfg = JSON.parse(localStorage.getItem('dsr.' + _company + '.meta') || '{}'); } catch { _companyCfg = {}; }
+      // Substitui pelo valor da nuvem (mais atualizado)
+      try {
+        const SBU = activeUrl(), SBK = activeKey();
+        const base = SBU.replace(/\/$/, '') + '/rest/v1';
+        const h = { apikey: SBK, Authorization: 'Bearer ' + SBK };
+        const r = await fetch(`${base}/social_config?company_id=eq.${_company}&select=*`, { headers: h });
+        if (r.ok) {
+          const rows = await r.json();
+          if (rows.length) {
+            const row = rows[0];
+            _companyCfg = {
+              metaToken:     row.meta_token     || _companyCfg.metaToken     || '',
+              igAccountId:   row.ig_account_id  || _companyCfg.igAccountId  || '',
+              metaAdAccount: row.ad_account_id  || _companyCfg.metaAdAccount || '',
+              lastSync:      row.last_sync       || _companyCfg.lastSync      || null,
+            };
+            // Mantém localStorage em sincronia
+            localStorage.setItem('dsr.' + _company + '.meta', JSON.stringify(_companyCfg));
+          }
+        }
+      } catch { /* mantém cache local */ }
     },
     getCompany()  { return _company; },
-    setCompany(id){ _company = id; localStorage.setItem('dsr.activeCompany', id); },
+    setCompany(id){ _company = id; _companyCfg = {}; localStorage.setItem('dsr.activeCompany', id); },
     clearCompany(){ _company = null; localStorage.removeItem('dsr.activeCompany'); },
     mode()        { return 'supabase'; }, // sempre cloud após configuração
     list:   (col)       => backend().list(col),
