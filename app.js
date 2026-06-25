@@ -307,8 +307,8 @@ async function autoSyncIfNeeded() {
   const cfg = DB.getCompanyConfig();
   if (!cfg.metaToken || !cfg.igAccountId) return;
   const last = cfg.lastSync ? new Date(cfg.lastSync) : null;
-  const sixHoursAgo = new Date(Date.now() - 6 * 3600000);
-  if (!last || last < sixHoursAgo) {
+  const oneHourAgo = new Date(Date.now() - 3600000);
+  if (!last || last < oneHourAgo) {
     toast('Sincronizando Meta API automaticamente…');
     await syncMeta(false);
   }
@@ -1559,19 +1559,39 @@ window.loadSample=loadSample; window.selectCompany=selectCompany; window.showSel
 window.syncMeta=syncMeta; window.applyCustomRange=applyCustomRange; window.clearCustomRange=clearCustomRange;
 
 async function syncAll() {
-  const btn = $('#sync-all-btn'), label = $('#sync-label'), icon = $('#sync-icon');
-  if (btn) { btn.disabled = true; if (label) label.textContent = 'Atualizando…'; if (icon) icon.style.animation = 'spin 1s linear infinite'; }
+  // Captura e coloca em loading
+  const btn0 = $('#sync-all-btn'), lbl0 = $('#sync-label'), ico0 = $('#sync-icon');
+  if (btn0) { btn0.disabled = true; if (lbl0) lbl0.textContent = 'Atualizando…'; if (ico0) ico0.style.animation = 'spin 1s linear infinite'; }
+
+  const resetBtn = () => {
+    // Busca elementos no DOM atual (pode ser diferente após render())
+    const b = $('#sync-all-btn'), ic = $('#sync-icon'), lb = $('#sync-label');
+    if (b) b.disabled = false;
+    if (ic) ic.style.animation = '';
+    if (lb) {
+      const c = DB.getCompanyConfig();
+      lb.textContent = (c.metaToken && c.igAccountId) ? 'Sincronizar' : 'Atualizar';
+    }
+  };
+
   try {
     const cfg = DB.getCompanyConfig();
     if (cfg.metaToken && cfg.igAccountId) {
       await syncMeta();
+      // syncMeta() chama render() internamente — botão já está fresco após isso
     } else {
       await loadAll();
       render();
-      toast('Dados atualizados!');
+      if (cfg.metaToken && !cfg.igAccountId) {
+        toast('Dados atualizados — configure o Instagram Account ID em Config para ativar a Meta API.', 'warn');
+      } else {
+        toast('Dados atualizados!');
+      }
     }
+  } catch (e) {
+    toast('Erro ao sincronizar: ' + (e.message || 'verifique a conexão.'), 'err');
   } finally {
-    if (btn) { btn.disabled = false; if (icon) icon.style.animation = ''; }
+    resetBtn();
   }
 }
 window.syncAll = syncAll;
