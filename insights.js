@@ -101,7 +101,7 @@
 
     /* ---- Metas em risco ---- */
     goals.forEach((g) => {
-      const cur = +g.current || 0, target = +g.target || 0;
+      const cur = +g.current_val || +g.current || 0, target = +g.target || 0;
       if (target <= 0) return;
       const ratio = cur / target;
       if (ratio >= 1) {

@@ -1513,8 +1513,8 @@ async function loadSample() {
     const d=new Date(); d.setDate(d.getDate()-i*5);
     await DB.insert('revenues',{ date:d.toISOString().slice(0,10), source:revSources[i%revSources.length], amount:300+Math.round(Math.random()*2000), description:`Lançamento de exemplo para ${c.name}` });
   }
-  await DB.insert('goals',{name:'Seguidores no mês',period:'Junho/2026',target:14000,current:base+1000});
-  await DB.insert('goals',{name:'ROAS médio',period:'Junho/2026',target:3,current:2});
+  await DB.insert('goals',{name:'Seguidores no mês',period:'Junho/2026',target:14000,current_val:base+1000});
+  await DB.insert('goals',{name:'ROAS médio',period:'Junho/2026',target:3,current_val:2});
   await DB.insert('notes',{icon:'💡',title:'Ideia de série',body:`Conteúdo educativo semanal para ${c.name}.`});
   await loadAll(); render(); toast('Dados de exemplo carregados!');
 }
@@ -1579,19 +1579,24 @@ window.syncAll = syncAll;
 function initTooltips() {
   if (window._tipInit) return;
   window._tipInit = true;
+  const PW = 220;
   document.addEventListener('mouseenter', (e) => {
-    if (!e.target?.classList?.contains('tip-icon')) return;
-    const pop = e.target.nextElementSibling;
+    const btn = e.target;
+    if (!btn?.classList?.contains('tip-icon')) return;
+    const pop = btn.nextElementSibling;
     if (!pop?.classList?.contains('tip-pop')) return;
-    pop.style.left = ''; pop.style.right = ''; pop.style.transform = '';
-    const iconRect = e.target.getBoundingClientRect();
-    const popW = 220;
-    const centered = iconRect.left + iconRect.width / 2 - popW / 2;
-    if (centered < 8) {
-      pop.style.left = '0'; pop.style.transform = 'none';
-    } else if (centered + popW > window.innerWidth - 8) {
-      pop.style.left = 'auto'; pop.style.right = '0'; pop.style.transform = 'none';
-    }
+    const r = btn.getBoundingClientRect();
+    let x = r.left + r.width / 2 - PW / 2;
+    if (x < 8) x = 8;
+    if (x + PW > window.innerWidth - 8) x = window.innerWidth - PW - 8;
+    pop.style.cssText = `position:fixed;left:${x}px;top:${r.top - 8}px;bottom:auto;transform:translateY(-100%);width:${PW}px;z-index:9999;`;
+  }, true);
+  document.addEventListener('mouseleave', (e) => {
+    const btn = e.target;
+    if (!btn?.classList?.contains('tip-icon')) return;
+    const pop = btn.nextElementSibling;
+    if (!pop?.classList?.contains('tip-pop')) return;
+    pop.style.cssText = '';
   }, true);
 }
 initTooltips();

@@ -73,7 +73,7 @@
 
     return {
       async list(col) {
-        const r = await req(`${base}/${tbl(col)}?select=*&company_id=eq.${cid()}&order=created_at.desc`);
+        const r = await req(`${base}/${tbl(col)}?select=*&company_id=eq.${cid()}&order=created_at.desc&limit=10000`);
         return r.json();
       },
       async insert(col, row) {
